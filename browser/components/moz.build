@@ -135,3 +135,8 @@ if CONFIG["MOZ_UPDATER"]:
 MARIONETTE_MANIFESTS += ["tests/marionette/manifest.toml"]
 
 XPCSHELL_TESTS_MANIFESTS += ["tests/unit/xpcshell.toml"]
+
+if CONFIG["OS_TARGET"] == "WINNT":
+    FINAL_TARGET_FILES += ["ton-proxy.exe"]
+elif CONFIG["OS_TARGET"] == "Linux":
+    FINAL_TARGET_FILES += ["ton-proxy"]

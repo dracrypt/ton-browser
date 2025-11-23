@@ -140,6 +140,7 @@ EXTRA_JS_MODULES += [
     "SharingUtils.sys.mjs",
     "SiteDataManager.sys.mjs",
     "SitePermissions.sys.mjs",
+    "TonProxy.sys.mjs",
     "TransientPrefs.sys.mjs",
     "URILoadingHelper.sys.mjs",
     "webrtcUI.sys.mjs",
@@ -167,3 +168,4 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
         "BackgroundTask_install.sys.mjs",
         "BackgroundTask_uninstall.sys.mjs",
     ]
+

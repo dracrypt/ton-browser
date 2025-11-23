@@ -23,6 +23,11 @@
   pref("browser.hiddenWindowChromeURL", "chrome://browser/content/hiddenWindowMac.xhtml");
 #endif
 
+pref("network.tonproxy.enabled", true);
+pref("network.tonproxy.host", "127.0.0.1");
+pref("network.tonproxy.port", 6666);
+pref("browser.fixup.domainsuffixwhitelist.ton", true);
+
 // Set add-ons abuse report related prefs specific to Firefox Desktop.
 pref("extensions.abuseReport.enabled", true);
 
@@ -295,7 +300,7 @@ pref("browser.shell.setDefaultGuidanceNotifications", true);
 
 // 0 = blank, 1 = home (browser.startup.homepage), 2 = last visited page, 3 = resume previous browser session
 // The behavior of option 3 is detailed at: http://wiki.mozilla.org/Session_Restore
-pref("browser.startup.page",                1);
+pref("browser.startup.page",                3);
 pref("browser.startup.homepage",            "about:home");
 pref("browser.startup.homepage.abouthome_cache.enabled", true);
 pref("browser.startup.homepage.abouthome_cache.loglevel", "Warn");
@@ -1391,7 +1396,7 @@ pref("browser.lna.warning.infoURL", "https://support.mozilla.org/%LOCALE%/kb/con
 
 pref("browser.sessionstore.resume_from_crash", true);
 pref("browser.sessionstore.resume_session_once", false);
-pref("browser.sessionstore.resuming_after_os_restart", false);
+pref("browser.sessionstore.resuming_after_os_restart", true);
 
 // Toggle for the behavior to include closed tabs from all windows in
 // recently-closed tab lists & counts, and re-open tabs into the current window

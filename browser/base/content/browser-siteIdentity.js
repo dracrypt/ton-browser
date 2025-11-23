@@ -828,7 +828,9 @@ var gIdentityHandler = {
       (this._insecureConnectionTextPBModeEnabled &&
         PrivateBrowsingUtils.isWindowPrivate(window));
 
-    if (this._isSecureInternalUI) {
+    if (this._isTonConnection()) {
+      this._identityBox.className = "verifiedDomain";
+    } else if (this._isSecureInternalUI) {
       // This is a secure internal Firefox page.
       this._identityBox.className = "chromeUI";
       let brandBundle = document.getElementById("bundle_brand");
@@ -934,6 +936,24 @@ var gIdentityHandler = {
     this._identityIconLabel.collapsed = !icon_label;
   },
 
+   _isTonConnection() {
+    try {
+      if (!this._uriHasHost || !this._uri) {
+        return false;
+      }
+      if (this._uri.scheme != "http") {
+        return false;
+      }
+      if (!this._uri.host.endsWith(".ton")) {
+        return false;
+      }
+
+      return Services.prefs.getBoolPref("network.tonproxy.enabled", false);
+    } catch (e) {
+      return false;
+    }
+  },
+   
   /**
    * Updates the identity block user interface with the data from this object.
    */
@@ -941,8 +961,22 @@ var gIdentityHandler = {
     if (!this._identityBox) {
       return;
     }
+    
+   if (this._isTonConnection()) {
+      this._identityBox.setAttribute("pageproxystate", "valid");
+      this._identityBox.setAttribute("ton-secure", "true");
+    } else {
+      this._identityBox.removeAttribute("ton-secure");
+    }
 
     this._refreshIdentityIcons();
+
+    if (this._isTonConnection()) {
+      document.l10n.setAttributes(
+        this._identityIconLabel,
+        "identity-connection-ton-secure"
+      );
+    }
 
     // If this condition is true, the URL bar will have an "invalid"
     // pageproxystate, so we should hide the permission icons.
@@ -989,7 +1023,9 @@ var gIdentityHandler = {
 
     // Determine connection security information.
     let connection = "not-secure";
-    if (this._isSecureInternalUI) {
+    if (this._isTonConnection()) {
+      connection = "secure";
+    } else if (this._isSecureInternalUI) {
       connection = "chrome";
     } else if (this._pageExtensionPolicy) {
       connection = "extension";
