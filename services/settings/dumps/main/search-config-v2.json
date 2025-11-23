@@ -113,7 +113,7 @@
       "schema": 1745887776020
     },
     {
-      "globalDefault": "google",
+      "globalDefault": "ddg",
       "id": "f3891684-2348-4e7a-9765-0c5d2d0ab1b9",
       "last_modified": 1702906502241,
       "recordType": "defaultEngines",
