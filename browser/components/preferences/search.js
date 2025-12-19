@@ -24,6 +24,7 @@ Preferences.addAll([
   { id: "browser.search.suggest.enabled.private", type: "bool" },
   { id: "browser.urlbar.showSearchSuggestionsFirst", type: "bool" },
   { id: "browser.urlbar.showSearchTerms.enabled", type: "bool" },
+  { id: "browser.urlbar.showSearchTerms.featureGate", type: "bool" },
   { id: "browser.search.separatePrivateDefault", type: "bool" },
   { id: "browser.search.separatePrivateDefault.ui.enabled", type: "bool" },
   { id: "browser.urlbar.suggest.trending", type: "bool" },
@@ -44,6 +45,351 @@ Preferences.addAll([
   { id: "browser.urlbar.quicksuggest.online.enabled", type: "bool" },
 ]);
 
+/**
+ * Generates the config needed to populate the dropdowns for the user's
+ * default search engine and separate private default search engine.
+ *
+ * @param {object} options
+ *   Options for creating the config.
+ * @param {string} options.settingId
+ *   The id for the particular setting.
+ * @param {() => Promise<nsISearchEngine>} options.getEngine
+ *   The method used to get the engine from the Search Service.
+ * @param {(id: string) => Promise<void>} options.setEngine
+ *   The method used to set a new engine.
+ * @returns {PreferencesSettingsConfig}
+ */
+function createSearchEngineConfig({ settingId, getEngine, setEngine }) {
+  return class extends Preferences.AsyncSetting {
+    static id = settingId;
+    ENGINE_MODIFIED = "browser-search-engine-modified";
+    iconMap = new Map();
+
+    /** @type {{options: PreferencesSettingsConfig[]}} */
+    defaultGetControlConfig = { options: [] };
+
+    async get() {
+      let engine = await getEngine();
+      return engine.id;
+    }
+
+    async set(id) {
+      await setEngine(id);
+    }
+
+    async getControlConfig() {
+      let engines = await Services.search.getEngines();
+      await Promise.allSettled(engines.map(e => this.loadEngineIcon(e)));
+      return {
+        options: engines.map(engine => ({
+          value: engine.id,
+          iconSrc: this.getEngineIcon(engine),
+          controlAttrs: {
+            label: engine.name,
+          },
+        })),
+      };
+    }
+
+    getEngineIcon(engine) {
+      return this.iconMap.get(engine.id);
+    }
+
+    getPlaceholderIcon() {
+      return window.devicePixelRatio > 1
+        ? "chrome://browser/skin/search-engine-placeholder@2x.png"
+        : "chrome://browser/skin/search-engine-placeholder.png";
+    }
+
+    async loadEngineIcon(engine) {
+      try {
+        let iconURL = await engine.getIconURL();
+        let url = iconURL ?? this.getPlaceholderIcon();
+        this.iconMap.set(engine.id, url);
+        return url;
+      } catch (error) {
+        console.warn(`Failed to load icon for engine ${engine.name}:`, error);
+        let placeholderIcon = this.getPlaceholderIcon();
+        this.iconMap.set(engine.id, placeholderIcon);
+        return placeholderIcon;
+      }
+    }
+
+    setup() {
+      Services.obs.addObserver(this, this.ENGINE_MODIFIED);
+      return () => Services.obs.removeObserver(this, this.ENGINE_MODIFIED);
+    }
+
+    observe(subject, topic, data) {
+      if (topic == this.ENGINE_MODIFIED) {
+        let engine = subject.QueryInterface(Ci.nsISearchEngine);
+
+        // Clean up cache for removed engines.
+        if (data == "engine-removed") {
+          this.iconMap.delete(engine.id);
+        }
+
+        // Always emit change for any change that could affect the engine list
+        // or default.
+        this.emitChange();
+      }
+    }
+  };
+}
+
+Preferences.addSetting(
+  createSearchEngineConfig({
+    settingId: "defaultEngineNormal",
+    getEngine: () => Services.search.getDefault(),
+    setEngine: id =>
+      Services.search.setDefault(
+        Services.search.getEngineById(id),
+        Ci.nsISearchService.CHANGE_REASON_USER
+      ),
+  })
+);
+
+Preferences.addSetting({
+  id: "scotchBonnetEnabled",
+  pref: "browser.urlbar.scotchBonnet.enableOverride",
+});
+
+Preferences.addSetting({
+  id: "showSearchTermsFeatureGate",
+  pref: "browser.urlbar.showSearchTerms.featureGate",
+});
+
+Preferences.addSetting({
+  id: "searchShowSearchTermCheckbox",
+  pref: "browser.urlbar.showSearchTerms.enabled",
+  deps: ["scotchBonnetEnabled", "showSearchTermsFeatureGate"],
+  visible: ({ scotchBonnetEnabled, showSearchTermsFeatureGate }) => {
+    if (lazy.CustomizableUI.getPlacementOfWidget("search-container")) {
+      return false;
+    }
+    return showSearchTermsFeatureGate.value || scotchBonnetEnabled.value;
+  },
+  setup: onChange => {
+    // Add observer of CustomizableUI as showSearchTerms checkbox should be
+    // hidden while searchbar is enabled.
+    let customizableUIListener = {
+      onWidgetAfterDOMChange: node => {
+        if (node.id == "search-container") {
+          onChange();
+        }
+      },
+    };
+    lazy.CustomizableUI.addListener(customizableUIListener);
+    return () => lazy.CustomizableUI.removeListener(customizableUIListener);
+  },
+});
+
+Preferences.addSetting({
+  id: "separatePrivateDefaultUI",
+  pref: "browser.search.separatePrivateDefault.ui.enabled",
+  onUserChange: () => {
+    gSearchPane._engineStore.notifyRebuildViews();
+  },
+});
+
+Preferences.addSetting({
+  id: "browserSeparateDefaultEngine",
+  pref: "browser.search.separatePrivateDefault",
+  deps: ["separatePrivateDefaultUI"],
+  visible: ({ separatePrivateDefaultUI }) => {
+    return separatePrivateDefaultUI.value;
+  },
+  onUserChange: () => {
+    gSearchPane._engineStore.notifyRebuildViews();
+  },
+});
+
+Preferences.addSetting(
+  createSearchEngineConfig({
+    settingId: "defaultPrivateEngine",
+    getEngine: () => Services.search.getDefaultPrivate(),
+    setEngine: id =>
+      Services.search.setDefaultPrivate(
+        Services.search.getEngineById(id),
+        Ci.nsISearchService.CHANGE_REASON_USER
+      ),
+  })
+);
+
+Preferences.addSetting({
+  id: "searchSuggestionsEnabledPref",
+  pref: "browser.search.suggest.enabled",
+});
+
+Preferences.addSetting({
+  id: "permanentPBEnabledPref",
+  pref: "browser.privatebrowsing.autostart",
+});
+
+Preferences.addSetting({
+  id: "urlbarSuggestionsEnabledPref",
+  pref: "browser.urlbar.suggest.searches",
+});
+
+Preferences.addSetting({
+  id: "trendingFeaturegatePref",
+  pref: "browser.urlbar.trending.featureGate",
+});
+
+// The show search suggestion box behaves differently depending on whether the
+// separate search bar is shown. When the separate search bar is shown, it
+// controls just the search suggestion preference, and the
+// `urlBarSuggestionCheckbox` handles the urlbar suggestions. When the separate
+// search bar is not shown, this checkbox toggles both preferences to ensure
+// that the urlbar suggestion preference is set correctly, since that will be
+// the only bar visible.
+Preferences.addSetting({
+  id: "suggestionsInSearchFieldsCheckbox",
+  deps: ["searchSuggestionsEnabledPref", "urlbarSuggestionsEnabledPref"],
+  get(_, deps) {
+    let searchBarVisible =
+      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
+    return (
+      deps.searchSuggestionsEnabledPref.value &&
+      (searchBarVisible || deps.urlbarSuggestionsEnabledPref.value)
+    );
+  },
+  set(newCheckedValue, deps) {
+    let searchBarVisible =
+      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
+    if (!searchBarVisible) {
+      deps.urlbarSuggestionsEnabledPref.value = newCheckedValue;
+    }
+    deps.searchSuggestionsEnabledPref.value = newCheckedValue;
+    return newCheckedValue;
+  },
+});
+
+Preferences.addSetting({
+  id: "urlBarSuggestionCheckbox",
+  deps: [
+    "urlbarSuggestionsEnabledPref",
+    "suggestionsInSearchFieldsCheckbox",
+    "searchSuggestionsEnabledPref",
+    "permanentPBEnabledPref",
+  ],
+  get: (_, deps) => {
+    let searchBarVisible =
+      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
+    if (
+      deps.suggestionsInSearchFieldsCheckbox.value &&
+      searchBarVisible &&
+      deps.urlbarSuggestionsEnabledPref.value
+    ) {
+      return true;
+    }
+    return false;
+  },
+  set: (newCheckedValue, deps, setting) => {
+    if (setting.disabled) {
+      deps.urlbarSuggestionsEnabledPref.value = false;
+      return false;
+    }
+
+    let searchBarVisible =
+      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
+    if (deps.suggestionsInSearchFieldsCheckbox.value && searchBarVisible) {
+      deps.urlbarSuggestionsEnabledPref.value = newCheckedValue;
+    }
+    return newCheckedValue;
+  },
+  setup: onChange => {
+    // Add observer of CustomizableUI as checkbox should be hidden while
+    // searchbar is enabled.
+    let customizableUIListener = {
+      onWidgetAfterDOMChange: node => {
+        if (node.id == "search-container") {
+          onChange();
+        }
+      },
+    };
+    lazy.CustomizableUI.addListener(customizableUIListener);
+    return () => lazy.CustomizableUI.removeListener(customizableUIListener);
+  },
+  disabled: deps => {
+    return (
+      !deps.searchSuggestionsEnabledPref.value ||
+      deps.permanentPBEnabledPref.value
+    );
+  },
+  visible: () => {
+    let searchBarVisible =
+      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
+    return searchBarVisible;
+  },
+});
+
+Preferences.addSetting({
+  id: "showSearchSuggestionsFirstCheckbox",
+  pref: "browser.urlbar.showSearchSuggestionsFirst",
+  deps: [
+    "suggestionsInSearchFieldsCheckbox",
+    "urlbarSuggestionsEnabledPref",
+    "searchSuggestionsEnabledPref",
+    "permanentPBEnabledPref",
+  ],
+  get: (newCheckedValue, deps) => {
+    if (!deps.searchSuggestionsEnabledPref.value) {
+      return false;
+    }
+    return deps.urlbarSuggestionsEnabledPref.value ? newCheckedValue : false;
+  },
+  disabled: deps => {
+    return (
+      !deps.suggestionsInSearchFieldsCheckbox.value ||
+      !deps.urlbarSuggestionsEnabledPref.value ||
+      deps.permanentPBEnabledPref.value
+    );
+  },
+});
+
+Preferences.addSetting({
+  id: "showSearchSuggestionsPrivateWindowsCheckbox",
+  pref: "browser.search.suggest.enabled.private",
+  deps: ["searchSuggestionsEnabledPref"],
+  disabled: deps => {
+    return !deps.searchSuggestionsEnabledPref.value;
+  },
+});
+
+Preferences.addSetting({
+  id: "showTrendingSuggestionsCheckbox",
+  pref: "browser.urlbar.suggest.trending",
+  deps: [
+    "searchSuggestionsEnabledPref",
+    "permanentPBEnabledPref",
+    // Required to dynamically update the disabled state when the default engine is changed.
+    "defaultEngineNormal",
+    "trendingFeaturegatePref",
+  ],
+  visible: deps => deps.trendingFeaturegatePref.value,
+  disabled: deps => {
+    let trendingSupported = Services.search.defaultEngine.supportsResponseType(
+      lazy.SearchUtils.URL_TYPE.TRENDING_JSON
+    );
+    return (
+      !deps.searchSuggestionsEnabledPref.value ||
+      deps.permanentPBEnabledPref.value ||
+      !trendingSupported
+    );
+  },
+});
+
+Preferences.addSetting({
+  id: "urlBarSuggestionPermanentPBMessage",
+  deps: ["urlBarSuggestionCheckbox", "permanentPBEnabledPref"],
+  visible: deps => {
+    return (
+      deps.urlBarSuggestionCheckbox.visible && deps.permanentPBEnabledPref.value
+    );
+  },
+});
+
 const ENGINE_FLAVOR = "text/x-moz-search-engine";
 const SEARCH_TYPE = "default_search";
 const SEARCH_KEY = "defaultSearch";
@@ -52,21 +398,12 @@ var gEngineView = null;
 
 var gSearchPane = {
   _engineStore: null,
-  _engineDropDown: null,
-  _engineDropDownPrivate: null,
 
   init() {
+    initSettingGroup("defaultEngine");
+    initSettingGroup("searchSuggestions");
     this._engineStore = new EngineStore();
     gEngineView = new EngineView(this._engineStore);
-
-    this._engineDropDown = new DefaultEngineDropDown(
-      "normal",
-      this._engineStore
-    );
-    this._engineDropDownPrivate = new DefaultEngineDropDown(
-      "private",
-      this._engineStore
-    );
 
     this._engineStore.init().catch(console.error);
 
@@ -91,134 +428,13 @@ var gSearchPane = {
       Services.obs.removeObserver(this, "quicksuggest-dismissals-changed");
     });
 
-    let suggestsPref = Preferences.get("browser.search.suggest.enabled");
-    let urlbarSuggestsPref = Preferences.get("browser.urlbar.suggest.searches");
-    let privateSuggestsPref = Preferences.get(
-      "browser.search.suggest.enabled.private"
-    );
-
-    let updateSuggestionCheckboxes =
-      this._updateSuggestionCheckboxes.bind(this);
-    suggestsPref.on("change", updateSuggestionCheckboxes);
-    urlbarSuggestsPref.on("change", updateSuggestionCheckboxes);
-    let customizableUIListener = {
-      onWidgetAfterDOMChange: node => {
-        if (node.id == "search-container") {
-          updateSuggestionCheckboxes();
-        }
-      },
-    };
-    lazy.CustomizableUI.addListener(customizableUIListener);
-    window.addEventListener("unload", () => {
-      lazy.CustomizableUI.removeListener(customizableUIListener);
-    });
-
-    let urlbarSuggests = document.getElementById("urlBarSuggestion");
-    urlbarSuggests.addEventListener("command", () => {
-      urlbarSuggestsPref.value = urlbarSuggests.checked;
-    });
-    let suggestionsInSearchFieldsCheckbox = document.getElementById(
-      "suggestionsInSearchFieldsCheckbox"
-    );
-    // We only want to call _updateSuggestionCheckboxes once after updating
-    // all prefs.
-    suggestionsInSearchFieldsCheckbox.addEventListener("command", () => {
-      this._skipUpdateSuggestionCheckboxesFromPrefChanges = true;
-      if (!lazy.CustomizableUI.getPlacementOfWidget("search-container")) {
-        urlbarSuggestsPref.value = suggestionsInSearchFieldsCheckbox.checked;
-      }
-      suggestsPref.value = suggestionsInSearchFieldsCheckbox.checked;
-      this._skipUpdateSuggestionCheckboxesFromPrefChanges = false;
-      this._updateSuggestionCheckboxes();
-    });
-    let privateWindowCheckbox = document.getElementById(
-      "showSearchSuggestionsPrivateWindows"
-    );
-    privateWindowCheckbox.addEventListener("command", () => {
-      privateSuggestsPref.value = privateWindowCheckbox.checked;
-    });
-
     Preferences.addSyncFromPrefListener(
       document.getElementById("firefoxSuggestAll"),
       this._onFirefoxSuggestAllChange.bind(this)
     );
 
-    setEventListener(
-      "browserSeparateDefaultEngine",
-      "command",
-      this._onBrowserSeparateDefaultEngineChange.bind(this)
-    );
-
-    this._initDefaultEngines();
-    this._initShowSearchTermsCheckbox();
-    this._updateSuggestionCheckboxes();
     this._initRecentSeachesCheckbox();
     this._initAddressBar();
-  },
-
-  /**
-   * Initialize the default engine handling. This will hide the private default
-   * options if they are not enabled yet.
-   */
-  _initDefaultEngines() {
-    this._separatePrivateDefaultEnabledPref = Preferences.get(
-      "browser.search.separatePrivateDefault.ui.enabled"
-    );
-
-    this._separatePrivateDefaultPref = Preferences.get(
-      "browser.search.separatePrivateDefault"
-    );
-
-    const checkbox = document.getElementById("browserSeparateDefaultEngine");
-    checkbox.checked = !this._separatePrivateDefaultPref.value;
-
-    this._updatePrivateEngineDisplayBoxes();
-
-    const listener = () => {
-      this._updatePrivateEngineDisplayBoxes();
-      this._engineStore.notifyRebuildViews();
-    };
-
-    this._separatePrivateDefaultEnabledPref.on("change", listener);
-    this._separatePrivateDefaultPref.on("change", listener);
-  },
-
-  _initShowSearchTermsCheckbox() {
-    let checkbox = document.getElementById("searchShowSearchTermCheckbox");
-    let updateCheckboxHidden = () => {
-      checkbox.hidden =
-        !UrlbarPrefs.getScotchBonnetPref("showSearchTerms.featureGate") ||
-        !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
-    };
-
-    // Add observer of CustomizableUI as showSearchTerms checkbox
-    // should be hidden while Search Bar is enabled.
-    let customizableUIListener = {
-      onWidgetAfterDOMChange: node => {
-        if (node.id == "search-container") {
-          updateCheckboxHidden();
-        }
-      },
-    };
-    lazy.CustomizableUI.addListener(customizableUIListener);
-
-    // Fire once to initialize.
-    updateCheckboxHidden();
-
-    window.addEventListener("unload", () => {
-      lazy.CustomizableUI.removeListener(customizableUIListener);
-    });
-  },
-
-  _updatePrivateEngineDisplayBoxes() {
-    const separateEnabled = this._separatePrivateDefaultEnabledPref.value;
-    document.getElementById("browserSeparateDefaultEngine").hidden =
-      !separateEnabled;
-
-    const separateDefault = this._separatePrivateDefaultPref.value;
-
-    const vbox = document.getElementById("browserPrivateEngineSelection");
-    vbox.hidden = !separateEnabled || !separateDefault;
   },
 
   _onFirefoxSuggestAllChange() {
@@ -230,77 +446,6 @@ var gSearchPane = {
       !prefValue;
     // Don't override pref value in the UI.
     return undefined;
-  },
-
-  _onBrowserSeparateDefaultEngineChange(event) {
-    this._separatePrivateDefaultPref.value = !event.target.checked;
-  },
-
-  _updateSuggestionCheckboxes() {
-    if (this._skipUpdateSuggestionCheckboxesFromPrefChanges) {
-      return;
-    }
-    let suggestsPref = Preferences.get("browser.search.suggest.enabled");
-    let permanentPB = Services.prefs.getBoolPref(
-      "browser.privatebrowsing.autostart"
-    );
-    let urlbarSuggests = document.getElementById("urlBarSuggestion");
-    let suggestionsInSearchFieldsCheckbox = document.getElementById(
-      "suggestionsInSearchFieldsCheckbox"
-    );
-    let positionCheckbox = document.getElementById(
-      "showSearchSuggestionsFirstCheckbox"
-    );
-    let privateWindowCheckbox = document.getElementById(
-      "showSearchSuggestionsPrivateWindows"
-    );
-    let urlbarSuggestsPref = Preferences.get("browser.urlbar.suggest.searches");
-    let searchBarVisible =
-      !!lazy.CustomizableUI.getPlacementOfWidget("search-container");
-
-    suggestionsInSearchFieldsCheckbox.checked =
-      suggestsPref.value && (searchBarVisible || urlbarSuggestsPref.value);
-
-    urlbarSuggests.disabled = !suggestsPref.value || permanentPB;
-    urlbarSuggests.hidden = !searchBarVisible;
-
-    privateWindowCheckbox.disabled = !suggestsPref.value;
-    privateWindowCheckbox.checked = Preferences.get(
-      "browser.search.suggest.enabled.private"
-    ).value;
-    if (privateWindowCheckbox.disabled) {
-      privateWindowCheckbox.checked = false;
-    }
-
-    urlbarSuggests.checked = urlbarSuggestsPref.value;
-    if (urlbarSuggests.disabled) {
-      urlbarSuggests.checked = false;
-    }
-    if (urlbarSuggests.checked) {
-      positionCheckbox.disabled = false;
-      // Update the checked state of the show-suggestions-first checkbox.  Note
-      // that this does *not* also update its pref, it only checks the box.
-      positionCheckbox.checked = Preferences.get(
-        positionCheckbox.getAttribute("preference")
-      ).value;
-    } else {
-      positionCheckbox.disabled = true;
-      positionCheckbox.checked = false;
-    }
-    if (
-      suggestionsInSearchFieldsCheckbox.checked &&
-      !searchBarVisible &&
-      !urlbarSuggests.checked
-    ) {
-      urlbarSuggestsPref.value = true;
-    }
-
-    let permanentPBLabel = document.getElementById(
-      "urlBarSuggestionPermanentPBLabel"
-    );
-    permanentPBLabel.hidden = urlbarSuggests.hidden || !permanentPB;
-
-    this._updateTrendingCheckbox(!suggestsPref.value || permanentPB);
   },
 
   _initRecentSeachesCheckbox() {
@@ -316,17 +461,6 @@ var gSearchPane = {
 
     this._recentSearchesEnabledPref.on("change", listener);
     listener();
-  },
-
-  async _updateTrendingCheckbox(suggestDisabled) {
-    let trendingBox = document.getElementById("showTrendingSuggestionsBox");
-    let trendingCheckBox = document.getElementById("showTrendingSuggestions");
-    let trendingSupported = (
-      await Services.search.getDefault()
-    ).supportsResponseType(lazy.SearchUtils.URL_TYPE.TRENDING_JSON);
-    trendingBox.hidden = !Preferences.get("browser.urlbar.trending.featureGate")
-      .value;
-    trendingCheckBox.disabled = suggestDisabled || !trendingSupported;
   },
 
   // ADDRESS BAR
@@ -478,7 +612,6 @@ var gSearchPane = {
           case "engine-default": {
             // Pass through to the engine store to handle updates.
             this._engineStore.browserSearchEngineModified(engine, data);
-            gSearchPane._updateSuggestionCheckboxes();
             break;
           }
           default:
@@ -525,14 +658,14 @@ class EngineStore {
   /**
    * A list of engines that are currently visible in the UI.
    *
-   * @type {Object[]}
+   * @type {object[]}
    */
   engines = [];
 
   /**
    * A list of listeners to be notified when the engine list changes.
    *
-   * @type {Object[]}
+   * @type {object[]}
    */
   #listeners = [];
 
@@ -1494,82 +1627,5 @@ class EngineView {
       return false;
     }
     return true;
-  }
-}
-
-/**
- * Manages the default engine dropdown buttons in the search pane of preferences.
- */
-class DefaultEngineDropDown {
-  #element = null;
-  #type = null;
-
-  constructor(type, engineStore) {
-    this.#type = type;
-    this.#element = document.getElementById(
-      type == "private" ? "defaultPrivateEngine" : "defaultEngine"
-    );
-
-    engineStore.addListener(this);
-  }
-
-  rowCountChanged(index, count, enginesList) {
-    // Simply rebuild the menulist, rather than trying to update the changed row.
-    this.rebuild(enginesList);
-  }
-
-  defaultEngineChanged(type, engine, enginesList) {
-    if (type != this.#type) {
-      return;
-    }
-    // If the user is going through the drop down using up/down keys, the
-    // dropdown may still be open (eg. on Windows) when engine-default is
-    // fired, so rebuilding the list unconditionally would get in the way.
-    let selectedEngineName = this.#element.selectedItem?.engine?.name;
-    if (selectedEngineName != engine.name) {
-      this.rebuild(enginesList);
-    }
-  }
-
-  engineIconUpdated(index, enginesList) {
-    let item = this.#element.getItemAtIndex(index);
-    // Check this is the right item.
-    if (item?.label == enginesList[index].name) {
-      item.setAttribute("image", enginesList[index].iconURL);
-    }
-  }
-
-  async rebuild(enginesList) {
-    if (
-      this.#type == "private" &&
-      !gSearchPane._separatePrivateDefaultPref.value
-    ) {
-      return;
-    }
-    let defaultEngine =
-      await Services.search[
-        this.#type == "normal" ? "getDefault" : "getDefaultPrivate"
-      ]();
-
-    this.#element.removeAllItems();
-    for (let engine of enginesList) {
-      let item = this.#element.appendItem(engine.name);
-      item.setAttribute(
-        "class",
-        "menuitem-iconic searchengine-menuitem menuitem-with-favicon"
-      );
-      if (engine.iconURL) {
-        item.setAttribute("image", engine.iconURL);
-      }
-      item.engine = engine;
-      if (engine.name == defaultEngine.name) {
-        this.#element.selectedItem = item;
-      }
-    }
-    // This should never happen, but try and make sure we have at least one
-    // selected item.
-    if (!this.#element.selectedItem) {
-      this.#element.selectedIndex = 0;
-    }
   }
 }

@@ -705,11 +705,12 @@ class Accessible {
   }
 
   /**
-   * Returns the nearest ancestor which is not a generic element.
+   * Returns the nearest ancestor in the document which is not a generic
+   * element.
    */
   Accessible* GetNonGenericParent() const {
     for (Accessible* parent = Parent(); parent; parent = parent->Parent()) {
-      if (!parent->IsGeneric()) {
+      if (parent->IsDoc() || !parent->IsGeneric()) {
         return parent;
       }
     }
@@ -792,6 +793,20 @@ class Accessible {
    * not a primary action either.
    */
   virtual bool HasPrimaryAction() const = 0;
+
+  /**
+   * Return true if this Accessible has custom actions, even if those actions
+   * aren't currently available. Custom actions are secondary actions provided
+   * by the author using associated elements (e.g. via aria-actions), in
+   * contrast to actions provided by Gecko on the element itself (e.g. click).
+   * Custom actions are queried using RelationByType(RelationType::ACTION).
+   * However, there can be cases where there are associated custom actions, but
+   * the target elements are hidden; e.g. because the origin element isn't
+   * focused. The client might need to know there are actions even if it can't
+   * currently query them. For this case, this function will return true, even
+   * though RelationByType will return nothing.
+   */
+  virtual bool HasCustomActions() const = 0;
 
  protected:
   // Some abstracted group utility methods.

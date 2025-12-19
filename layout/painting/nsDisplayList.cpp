@@ -108,7 +108,6 @@
 #include "nsTextFrame.h"
 #include "nsTextPaintStyle.h"
 #include "nsTransitionManager.h"
-#include "nsViewManager.h"
 
 namespace mozilla {
 
@@ -166,22 +165,18 @@ void InitializeHitTestInfo(nsDisplayListBuilder* aBuilder,
 }
 
 /* static */
-already_AddRefed<ActiveScrolledRoot> ActiveScrolledRoot::CreateASRForFrame(
+already_AddRefed<ActiveScrolledRoot> ActiveScrolledRoot::GetOrCreateASRForFrame(
     const ActiveScrolledRoot* aParent,
-    ScrollContainerFrame* aScrollContainerFrame
-#ifdef DEBUG
-    ,
-    const nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots
-#endif
-) {
+    ScrollContainerFrame* aScrollContainerFrame,
+    nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots) {
   RefPtr<ActiveScrolledRoot> asr =
       aScrollContainerFrame->GetProperty(ActiveScrolledRootCache());
 
 #ifdef DEBUG
   if (asr && aActiveScrolledRoots.Contains(asr)) {
-    // This is the second time we are "creating" this ASR in this paint. Assert
-    // that we aren't changing any of the values. (The values can change
-    // *between* paints, but not during one paint.)
+    // If this is the second time we are called for this frame in this same
+    // paint, assert that we aren't changing any of the values. (The values can
+    // change *between* paints, but not during one paint.)
     MOZ_ASSERT(asr->mParent == aParent);
     MOZ_ASSERT(asr->mFrame == aScrollContainerFrame);
     MOZ_ASSERT(asr->mKind == ASRKind::Scroll);
@@ -195,6 +190,7 @@ already_AddRefed<ActiveScrolledRoot> ActiveScrolledRoot::CreateASRForFrame(
     RefPtr<ActiveScrolledRoot> ref = asr;
     aScrollContainerFrame->SetProperty(ActiveScrolledRootCache(),
                                        ref.forget().take());
+    aActiveScrolledRoots.AppendElement(asr);
   }
   asr->mParent = aParent;
   asr->mFrame = aScrollContainerFrame;
@@ -206,13 +202,9 @@ already_AddRefed<ActiveScrolledRoot> ActiveScrolledRoot::CreateASRForFrame(
 
 /* static */
 already_AddRefed<ActiveScrolledRoot>
-ActiveScrolledRoot::CreateASRForStickyFrame(
-    const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame
-#ifdef DEBUG
-    ,
-    const nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots
-#endif
-) {
+ActiveScrolledRoot::GetOrCreateASRForStickyFrame(
+    const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame,
+    nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots) {
   aStickyFrame = aStickyFrame->FirstContinuation();
 
   RefPtr<ActiveScrolledRoot> asr =
@@ -220,9 +212,9 @@ ActiveScrolledRoot::CreateASRForStickyFrame(
 
 #ifdef DEBUG
   if (asr && aActiveScrolledRoots.Contains(asr)) {
-    // This is the second time we are "creating" this ASR in this paint. Assert
-    // that we aren't changing any of the values. (The values can change
-    // *between* paints, but not during one paint.)
+    // If this is the second time we are called for this frame in this same
+    // paint, assert that we aren't changing any of the values. (The values can
+    // change *between* paints, but not during one paint.)
     MOZ_ASSERT(asr->mParent == aParent);
     MOZ_ASSERT(asr->mFrame == aStickyFrame);
     MOZ_ASSERT(asr->mKind == ASRKind::Sticky);
@@ -236,6 +228,7 @@ ActiveScrolledRoot::CreateASRForStickyFrame(
     RefPtr<ActiveScrolledRoot> ref = asr;
     aStickyFrame->SetProperty(StickyActiveScrolledRootCache(),
                               ref.forget().take());
+    aActiveScrolledRoots.AppendElement(asr);
   }
 
   asr->mParent = aParent;
@@ -543,11 +536,14 @@ void nsDisplayListBuilder::AutoCurrentActiveScrolledRootSetter::
 
   // finiteBoundsASR is the leafmost ASR that all items created during
   // object's lifetime have finite bounds with respect to.
-  const ActiveScrolledRoot* finiteBoundsASR =
-      mBuilder->IsInViewTransitionCapture()
-          ? aActiveScrolledRoot
-          : ActiveScrolledRoot::PickDescendant(mContentClipASR,
-                                               aActiveScrolledRoot);
+  // TODO(bug 2001862): Explanation may need revising.
+  const ActiveScrolledRoot* finiteBoundsASR = aActiveScrolledRoot;
+  if (!mBuilder->IsInViewTransitionCapture()) {
+    finiteBoundsASR =
+        ActiveScrolledRoot::IsAncestor(aActiveScrolledRoot, mContentClipASR)
+            ? mContentClipASR
+            : aActiveScrolledRoot;
+  }
 
   // mCurrentContainerASR is adjusted so that it's still an ancestor of
   // finiteBoundsASR.
@@ -575,7 +571,7 @@ void nsDisplayListBuilder::AutoCurrentActiveScrolledRootSetter::
   size_t descendantsEndIndex = mBuilder->mActiveScrolledRoots.Length();
   const ActiveScrolledRoot* parentASR = mBuilder->mCurrentActiveScrolledRoot;
   const ActiveScrolledRoot* asr =
-      mBuilder->AllocateActiveScrolledRoot(parentASR, aScrollContainerFrame);
+      mBuilder->GetOrCreateActiveScrolledRoot(parentASR, aScrollContainerFrame);
   mBuilder->mCurrentActiveScrolledRoot = asr;
 
   // All child ASRs of parentASR that were created while this
@@ -876,6 +872,7 @@ void nsDisplayListBuilder::EndFrame() {
   mActiveScrolledRoots.Clear();
   FreeClipChains();
   FreeTemporaryItems();
+  mAsyncScrollsWithAnchor.Clear();
   nsCSSRendering::EndFrameTreesLocked();
 }
 
@@ -1537,30 +1534,20 @@ void nsDisplayListBuilder::MarkPreserve3DFramesForDisplayList(
   }
 }
 
-ActiveScrolledRoot* nsDisplayListBuilder::AllocateActiveScrolledRoot(
+ActiveScrolledRoot* nsDisplayListBuilder::GetOrCreateActiveScrolledRoot(
     const ActiveScrolledRoot* aParent,
     ScrollContainerFrame* aScrollContainerFrame) {
-  RefPtr<ActiveScrolledRoot> asr =
-      ActiveScrolledRoot::CreateASRForFrame(aParent, aScrollContainerFrame
-#ifdef DEBUG
-                                            ,
-                                            mActiveScrolledRoots
-#endif
-      );
-  mActiveScrolledRoots.AppendElement(asr);
+  RefPtr<ActiveScrolledRoot> asr = ActiveScrolledRoot::GetOrCreateASRForFrame(
+      aParent, aScrollContainerFrame, mActiveScrolledRoots);
   return asr;
 }
 
-ActiveScrolledRoot* nsDisplayListBuilder::AllocateActiveScrolledRootForSticky(
+ActiveScrolledRoot*
+nsDisplayListBuilder::GetOrCreateActiveScrolledRootForSticky(
     const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame) {
   RefPtr<ActiveScrolledRoot> asr =
-      ActiveScrolledRoot::CreateASRForStickyFrame(aParent, aStickyFrame
-#ifdef DEBUG
-                                                  ,
-                                                  mActiveScrolledRoots
-#endif
-      );
-  mActiveScrolledRoots.AppendElement(asr);
+      ActiveScrolledRoot::GetOrCreateASRForStickyFrame(aParent, aStickyFrame,
+                                                       mActiveScrolledRoots);
   return asr;
 }
 
@@ -5864,7 +5851,9 @@ nsDisplayStickyPosition::nsDisplayStickyPosition(
     const ActiveScrolledRoot* aActiveScrolledRoot,
     ContainerASRType aContainerASRType, const ActiveScrolledRoot* aContainerASR)
     : nsDisplayOwnLayer(aBuilder, aFrame, aList, aActiveScrolledRoot,
-                        aContainerASRType),
+                        aContainerASRType, nsDisplayOwnLayerFlags::None,
+                        layers::ScrollbarData{},
+                        /*aForceActive=*/true, /*aClearClipChain=*/true),
       mContainerASR(aContainerASR),
       mShouldFlatten(false) {
   MOZ_COUNT_CTOR(nsDisplayStickyPosition);
@@ -8319,7 +8308,8 @@ static Maybe<wr::WrClipChainId> CreateSimpleClipRegion(
       return Nothing();
   }
 
-  wr::WrClipChainId clipChainId = aBuilder.DefineClipChain({clipId}, true);
+  wr::WrClipChainId clipChainId = aBuilder.DefineClipChain(
+      {&clipId, 1}, aBuilder.CurrentClipChainIdIfNotRoot());
 
   return Some(clipChainId);
 }
@@ -8385,7 +8375,8 @@ static Maybe<wr::WrClipChainId> CreateWRClipPathAndMasks(
   wr::WrClipId clipId =
       aBuilder.DefineImageMaskClip(mask.ref(), points, fillRule);
 
-  wr::WrClipChainId clipChainId = aBuilder.DefineClipChain({clipId}, true);
+  wr::WrClipChainId clipChainId = aBuilder.DefineClipChain(
+      {&clipId, 1}, aBuilder.CurrentClipChainIdIfNotRoot());
 
   return Some(clipChainId);
 }
@@ -8681,7 +8672,10 @@ bool nsDisplayFilters::CreateWebRenderCommands(
         mFrame->PresContext()->AppUnitsPerDevPixel());
     auto clipId =
         aBuilder.DefineRectClip(Nothing(), wr::ToLayoutRect(devPxRect));
-    clipChainId = aBuilder.DefineClipChain({clipId}, true).id;
+    clipChainId = aBuilder
+                      .DefineClipChain({&clipId, 1},
+                                       aBuilder.CurrentClipChainIdIfNotRoot())
+                      .id;
   } else {
     clipChainId = aBuilder.CurrentClipChainId();
   }
@@ -8881,10 +8875,10 @@ nsDisplayListBuilder::AutoBuildingDisplayList::AutoBuildingDisplayList(
     : mBuilder(aBuilder),
       mPrevFrame(aBuilder->mCurrentFrame),
       mPrevReferenceFrame(aBuilder->mCurrentReferenceFrame),
-      mPrevOffset(aBuilder->mCurrentOffsetToReferenceFrame),
-      mPrevAdditionalOffset(aBuilder->mAdditionalOffset),
       mPrevVisibleRect(aBuilder->mVisibleRect),
       mPrevDirtyRect(aBuilder->mDirtyRect),
+      mPrevOffset(aBuilder->mCurrentOffsetToReferenceFrame),
+      mPrevAdditionalOffset(aBuilder->mAdditionalOffset),
       mPrevCompositorHitTestInfo(aBuilder->mCompositorHitTestInfo),
       mPrevAncestorHasApzAwareEventHandler(
           aBuilder->mAncestorHasApzAwareEventHandler),

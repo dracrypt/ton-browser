@@ -9,13 +9,10 @@
 #include "PuppetWidget.h"
 #include "TextEvents.h"
 
-#include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "nsCharTraits.h"
 #include "nsIFrame.h"
 #include "nsIWidget.h"
-#include "nsPIDOMWindow.h"
-#include "nsView.h"
 
 namespace mozilla {
 namespace widget {
@@ -548,21 +545,11 @@ bool TextEventDispatcher::DispatchKeyboardEventInternal(
     return false;
   }
 
-  // Basically, key events shouldn't be dispatched during composition.
-  // Note that plugin process has different IME context.  Therefore, we don't
-  // need to check our composition state when the key event is fired on a
-  // plugin.
-  if (IsComposing()) {
-    // However, if we need to behave like other browsers, we need the keydown
-    // and keyup events.  Note that this behavior is also allowed by D3E spec.
-    // FYI: keypress events must not be fired during composition.
-    if (!StaticPrefs::dom_keyboardevent_dispatch_during_composition() ||
-        aMessage == eKeyPress) {
-      return false;
-    }
-    // XXX If there was mOnlyContentDispatch for this case, it might be useful
-    //     because our chrome doesn't assume that key events are fired during
-    //     composition.
+  // While we have an IME composition, `keydown` and `keyup` events should be
+  // fired as "Process" key events. However, `keypress` events should not be
+  // fired. https://w3c.github.io/uievents/#events-composition-key-events
+  if (IsComposing() && aMessage == eKeyPress) {
+    return false;
   }
 
   WidgetKeyboardEvent keyEvent(true, aMessage, mWidget);

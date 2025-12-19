@@ -82,6 +82,7 @@ const UI_TARGET_CHANGE_ELEMENTS = new Set([
   "moz-input-search",
   "moz-input-text",
   "moz-visual-picker-item",
+  "sync-device-name",
 ]);
 const UI_TARGET_COMMAND_ELEMENTS = new Set([
   "menuitem",
@@ -148,6 +149,7 @@ const PREFERENCES_PANES = [
   "paneContainers",
   "paneExperimental",
   "paneMoreFromMozilla",
+  "paneAiFeatures",
 ];
 
 const IGNORABLE_EVENTS = new WeakMap();
@@ -525,10 +527,6 @@ export let BrowserUsageTelemetry = {
     this._inited = true;
 
     Services.prefs.addObserver("browser.tabs.inTitlebar", this);
-    Services.prefs.addObserver(
-      "media.videocontrols.picture-in-picture.enable-when-switching-tabs.enabled",
-      this
-    );
     Services.prefs.addObserver("idle-daily", this);
 
     this._recordUITelemetry();
@@ -641,12 +639,6 @@ export let BrowserUsageTelemetry = {
               "pref"
             );
             break;
-          case "media.videocontrols.picture-in-picture.enable-when-switching-tabs.enabled":
-            if (Services.prefs.getBoolPref(data)) {
-              Glean.pictureinpictureSettings.enableAutotriggerSettings.record();
-            }
-            break;
-
           case "idle-daily":
             this._recordInitialPrefValues();
             break;
@@ -1899,7 +1891,7 @@ export let BrowserUsageTelemetry = {
    * @param {Array<string>} [msixPackagePrefixes] Optional, list of prefixes to
             consider "existing" installs when looking at installed MSIX packages.
             Defaults to prefixes for builds produced in Firefox automation.
-   * @return {Promise<Object>} A JSON object containing install telemetry.
+   * @return {Promise<object>} A JSON object containing install telemetry.
    * @resolves When the event has been recorded, or if the data file was not found.
    * @rejects JavaScript exception on any failure.
    */

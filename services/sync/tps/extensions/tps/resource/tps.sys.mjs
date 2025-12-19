@@ -485,7 +485,7 @@ export var TPS = {
                 (await passwordOb.Find()) != -1,
                 "password not found"
               );
-              passwordOb.Update();
+              await passwordOb.Update();
             }
             break;
           default:
@@ -1357,7 +1357,7 @@ export var TPS = {
   /**
    * Triggers a sync operation
    *
-   * @param {String} [wipeAction]
+   * @param {string} [wipeAction]
    *        Type of wipe to perform (resetClient, wipeClient, wipeRemote)
    */
   async Sync(wipeAction) {

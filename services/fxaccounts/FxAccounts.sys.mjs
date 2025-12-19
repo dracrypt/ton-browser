@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { CryptoUtils } from "moz-src:///services/crypto/modules/utils.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { FxAccountsStorageManager } from "resource://gre/modules/FxAccountsStorage.sys.mjs";
@@ -28,7 +27,8 @@ import {
   ON_DEVICE_DISCONNECTED_NOTIFICATION,
   POLL_SESSION,
   PREF_ACCOUNT_ROOT,
-  PREF_LAST_FXA_USER,
+  PREF_LAST_FXA_USER_EMAIL,
+  PREF_LAST_FXA_USER_UID,
   SERVER_ERRNO_TO_ERROR,
   log,
   logPII,
@@ -38,6 +38,7 @@ import {
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  CryptoUtils: "moz-src:///services/crypto/modules/utils.sys.mjs",
   FxAccountsClient: "resource://gre/modules/FxAccountsClient.sys.mjs",
   FxAccountsCommands: "resource://gre/modules/FxAccountsCommands.sys.mjs",
   FxAccountsConfig: "resource://gre/modules/FxAccountsConfig.sys.mjs",
@@ -402,9 +403,9 @@ export class FxAccounts {
    * result if it's not older than 4 hours. If the cached data is too old or
    * missing, it fetches new data and updates the cache.
    *
-   * @typedef {Object} AttachedClient
-   * @property {String} id - OAuth `client_id` of the client.
-   * @property {Number} lastAccessedDaysAgo - How many days ago the client last
+   * @typedef {object} AttachedClient
+   * @property {string} id - OAuth `client_id` of the client.
+   * @property {number} lastAccessedDaysAgo - How many days ago the client last
    *    accessed the FxA server APIs.
    *
    * @returns {Array.<AttachedClient>} A list of attached clients.
@@ -586,15 +587,6 @@ export class FxAccounts {
       if (!lazy.FXA_ENABLED) {
         await this.signOut();
         return null;
-      }
-      // XXX - these comments reflect old baggage, we should clean this up.
-      // data.verified is the sessionToken status. oauth cares only about whether it has the keys.
-      // (Note that this never forces `.verified` to `true` even if we *do* have the keys, which
-      // seems slightly odd)
-      // Note that is the primary-password is locked we can't get the scopedKeys even if they exist, so
-      // we don't want to pretend the user is unverified in that case.
-      if (Services.logins.isLoggedIn && !data.scopedKeys) {
-        data.verified = false;
       }
       delete data.scopedKeys;
 
@@ -1120,6 +1112,19 @@ FxAccountsInternal.prototype = {
     return Promise.all(promises);
   },
 
+  // We need to do a one-off migration of a preference to protect against
+  // accidentally merging sync data.
+  // We replace a previously hashed email with a hashed uid.
+  _migratePreviousAccountNameHashPref(uid) {
+    if (Services.prefs.prefHasUserValue(PREF_LAST_FXA_USER_EMAIL)) {
+      Services.prefs.setStringPref(
+        PREF_LAST_FXA_USER_UID,
+        lazy.CryptoUtils.sha256Base64(uid)
+      );
+      Services.prefs.clearUserPref(PREF_LAST_FXA_USER_EMAIL);
+    }
+  },
+
   async signOut(localOnly) {
     let sessionToken;
     let tokensToRevoke;
@@ -1128,6 +1133,7 @@ FxAccountsInternal.prototype = {
     if (data) {
       sessionToken = data.sessionToken;
       tokensToRevoke = data.oauthTokens;
+      this._migratePreviousAccountNameHashPref(data.uid);
     }
     await this.notifyObservers(ON_PRELOGOUT_NOTIFICATION);
     await this._signOutLocal();
@@ -1204,8 +1210,8 @@ FxAccountsInternal.prototype = {
    * It's split out into a separate method so that we can easily
    * stash in-flight calls in a cache.
    *
-   * @param {String} scopeString
-   * @param {Number} ttl
+   * @param {string} scopeString
+   * @param {number} ttl
    * @returns {Promise<string>}
    * @private
    */
@@ -1321,6 +1327,12 @@ FxAccountsInternal.prototype = {
    * Sets the user to be verified in the account state,
    */
   async setUserVerified() {
+    await this.withCurrentAccountState(async currentState => {
+      const userData = await currentState.getUserAccountData();
+      if (!userData.verified) {
+        await currentState.updateUserAccountData({ verified: true });
+      }
+    });
     await this.notifyObservers(ONVERIFIED_NOTIFICATION);
   },
 
@@ -1364,15 +1376,7 @@ FxAccountsInternal.prototype = {
     await this.notifyObservers(ON_DEVICE_DISCONNECTED_NOTIFICATION, data);
   },
 
-  _setLastUserPref(newEmail) {
-    Services.prefs.setStringPref(
-      PREF_LAST_FXA_USER,
-      CryptoUtils.sha256Base64(newEmail)
-    );
-  },
-
   async _handleEmailUpdated(newEmail) {
-    this._setLastUserPref(newEmail);
     await this.currentAccountState.updateUserAccountData({ email: newEmail });
   },
 

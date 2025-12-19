@@ -106,13 +106,14 @@ export class _CustomizeMenu extends React.PureComponent {
                   this.props.mayHaveInferredPersonalization
                 }
                 mayHaveWeather={this.props.mayHaveWeather}
-                mayHaveTrendingSearch={this.props.mayHaveTrendingSearch}
                 mayHaveWidgets={this.props.mayHaveWidgets}
                 mayHaveTimerWidget={this.props.mayHaveTimerWidget}
                 mayHaveListsWidget={this.props.mayHaveListsWidget}
                 dispatch={this.props.dispatch}
                 exitEventFired={this.state.exitEventFired}
                 onSubpanelToggle={this.onSubpanelToggle}
+                toggleSectionsMgmtPanel={this.props.toggleSectionsMgmtPanel}
+                showSectionsMgmtPanel={this.props.showSectionsMgmtPanel}
               />
             </div>
           </div>

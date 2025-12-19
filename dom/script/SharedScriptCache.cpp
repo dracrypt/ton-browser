@@ -182,6 +182,7 @@ void SharedScriptCache::Invalidate() {
   if (sSingleton) {
     sSingleton->InvalidateInProcess();
   }
+  TRACE_FOR_TEST_0("memorycache:invalidate");
 }
 
 void SharedScriptCache::InvalidateInProcess() {
@@ -314,7 +315,7 @@ void SharedScriptCache::UpdateDiskCache() {
     }
 
     if (!mEncodeItems.emplaceBack(loadedScript->GetStencil(),
-                                  std::move(loadedScript->SRIAndBytecode()),
+                                  std::move(loadedScript->SRI()),
                                   loadedScript)) {
       continue;
     }
@@ -359,19 +360,19 @@ void SharedScriptCache::SaveToDiskCache() {
   for (const auto& item : mEncodeItems) {
     if (item.mCompressed.empty()) {
       item.mLoadedScript->DropDiskCacheReference();
-      item.mLoadedScript->DropBytecode();
+      item.mLoadedScript->DropSRIOrSRIAndSerializedStencil();
       TRACE_FOR_TEST(item.mLoadedScript, "diskcache:failed");
       continue;
     }
 
     if (!ScriptLoader::SaveToDiskCache(item.mLoadedScript, item.mCompressed)) {
       item.mLoadedScript->DropDiskCacheReference();
-      item.mLoadedScript->DropBytecode();
+      item.mLoadedScript->DropSRIOrSRIAndSerializedStencil();
       TRACE_FOR_TEST(item.mLoadedScript, "diskcache:failed");
     }
 
     item.mLoadedScript->DropDiskCacheReference();
-    item.mLoadedScript->DropBytecode();
+    item.mLoadedScript->DropSRIOrSRIAndSerializedStencil();
     TRACE_FOR_TEST(item.mLoadedScript, "diskcache:saved");
   }
 

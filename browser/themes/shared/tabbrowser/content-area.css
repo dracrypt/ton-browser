@@ -156,19 +156,38 @@
     -moz-user-focus: none !important;
   }
 
-  &[splitview] {
+  .split-view-panel {
     --panel-min-width: 140px;
+    min-width: var(--panel-min-width);
+    max-width: calc(100% - var(--panel-min-width));
+    width: 49.4%;
+  }
 
-    .split-view-panel {
-      position: relative;
-      flex: 1;
-      min-width: var(--panel-min-width);
-      max-width: calc(100% - var(--panel-min-width));
+  &[splitview] {
+    .split-view-panel.split-view-panel-active {
       margin: var(--space-xsmall);
+      flex: 1;
+      position: relative;
+      width: unset;
     }
+
     /* Ensure any dialogs are clipped in an inactive/not-selected panel. */
     :root:not([inDOMFullscreen]) & > .split-view-panel:not(.deck-selected) {
       overflow: clip;
+    }
+
+    /* Ensure split view panels can display in fullscreen mode */
+    :root[inDOMFullscreen] & > .split-view-panel-active:not(.deck-selected) {
+      -moz-subtree-hidden-only-visually: 1;
+    }
+    :root[inDOMFullscreen] & > .split-view-panel-active.deck-selected {
+      margin: 0;
+      position: absolute;
+      max-width: none;
+
+      & > .browserContainer {
+        border-radius: 0;
+      }
     }
 
     .browserContainer {
@@ -206,6 +225,10 @@
     /* Display split view footer within inactive panels. */
     .split-view-panel:not(.deck-selected) > split-view-footer {
       display: inherit;
+
+      &[hidden] {
+        display: none;
+      }
     }
   }
 }
@@ -228,6 +251,9 @@ split-view-footer {
 
   padding-block: var(--space-xxsmall);
   padding-inline: var(--space-small) var(--space-xsmall);
+
+  -moz-context-properties: fill;
+  fill: var(--button-icon-fill);
 }
 
 .split-view-icon {
@@ -369,6 +395,7 @@ split-view-footer {
 }
 
 #ask-chat-shortcuts {
+  font: menu;
   max-width: 345px;
 }
 

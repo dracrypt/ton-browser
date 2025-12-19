@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources xmlns:tools="http://schemas.android.com/tools" xmlns:moz="http://mozac.org/tools">
   <!-- App name for private browsing mode. %s is the name of the app (for example "Firefox"). -->
   <string name="app_name_private_5">私密 %s</string>
@@ -54,6 +61,8 @@
   <string name="tab_manager_empty_synced_tabs_page_description">登录即可管理您各设备间同步的标签页。</string>
   <!-- The action text displayed on the synced tabs page when the user is not logged into an account, prompting the user to sign into their account. When clicked, it takes the user to the account sign-in flow. -->
   <string name="tab_manager_empty_synced_tabs_page_sign_in_cta">登录</string>
+  <!-- Text for the button used to show all stories -->
+  <string name="homepage_all_stories">所有文章</string>
   <!--
     Home - Bookmarks
 
@@ -82,7 +91,7 @@
     %1$s is the name of the app (for example "Firefox").
     %2$s is a link using felt_privacy_info_card_subtitle_link_text as text
   -->
-  <string name="felt_privacy_info_card_subtitle_2">%1$s 会在您关闭所有隐私标签页时删除您的 Cookie、历史记录和网站数据。%2$s</string>
+  <string name="felt_privacy_info_card_subtitle_2" tools:ignore="UnusedResources" moz:removedIn="147">%1$s 会在您关闭所有隐私标签页时删除您的 Cookie、历史记录和网站数据。%2$s</string>
   <!--
     Description of private browsing mode displayed to users on the homepage when they enable private mode.
     %1$s is the name of the app (for example "Firefox").
@@ -813,8 +822,6 @@
   <string name="preferences_gestures">手势</string>
   <!-- Preference for settings related to visual options -->
   <string name="preferences_customize">定制</string>
-  <!-- Preference description for banner about signing in -->
-  <string name="preferences_sign_in_description_2" tools:ignore="UnusedResources" moz:removedIn="145">登录后即可同步标签页、书签、密码等数据。</string>
   <!-- Preference description shown in the banner prompting the user to sign in for sync features -->
   <string name="preferences_sign_in_description">同步标签页、书签、密码等数据。</string>
   <!-- Preference shown instead of account display name while account profile information isn't available yet. -->
@@ -1052,14 +1059,20 @@
   <string name="alternative_app_icon_group_gradients">渐变</string>
   <!-- Title for the "Other" group of alternative app icon variants in the icon picker screen. This group includes retro, pixel art, themed, and artist-created icons. -->
   <string name="alternative_app_icon_group_other" tools:ignore="UnusedResources" moz:removedIn="146">其他</string>
+  <!-- Title for the "Featured" group of alternative app icon variants in the icon picker screen. This group includes retro, pixel art, themed, and artist-created icons. -->
+  <string name="alternative_app_icon_group_featured">精选</string>
   <!-- Title to show in alert when user selects an alternative app icon -->
   <string name="restart_warning_dialog_title">更改应用图标？</string>
   <!-- Message to warn users that applying an alternative app icon may require an app restart. Whether or not the app closes depends on what version of Android it is, so we use the word "may" instead of "will". %1$s is replaced by the brand name (e.g. Firefox). -->
   <string name="restart_warning_dialog_body_2">应用可能会关闭。点按您挑选的崭新图标即可重新打开 %1$s。</string>
+  <!-- Message to warn users that applying an alternative app icon may require an app restart and will remove existing shortcuts because of the OS limitations. Whether or not the app closes depends on what version of Android it is, so we use the word "may" instead of "will". %1$s is replaced by the brand name (e.g. Firefox). -->
+  <string name="restart_and_shortcuts_removal_warning_dialog_body">更改图标将移除您保存到主屏幕的所有网站和快捷方式。 \n\n%1$s 可能会关闭，点按新图标即可重新打开。</string>
   <!-- Dialog button text for confirming the possible app restart and new icon selection -->
   <string name="restart_warning_dialog_button_positive_2">更改图标</string>
   <!-- Dialog button text for cancelling app icon change -->
   <string name="restart_warning_dialog_button_negative">取消</string>
+  <!-- Error message snackbar shown after the user tried to apply the new icon but the Android OS threw an error while updating existing app shortcuts (e.g. private mode shortcut) -->
+  <string name="shortcuts_update_error">更新应用图标失败。请移除现有的快捷方式，然后重试。</string>
   <!--
     Add-ons general availability nimbus message
 
@@ -1204,10 +1217,8 @@
   <!--
     Turn On Sync Preferences
 
-    Header of the Sync and save your data preference view
+    Header of the Sign in preference view
   -->
-  <string name="preferences_sync_2" tools:ignore="UnusedResources" moz:removedIn="145">同步并保存您的数据</string>
-  <!-- Header of the Sign in preference view -->
   <string name="preferences_sign_in">登录</string>
   <!-- Preference for reconnecting to FxA sync -->
   <string name="preferences_sync_sign_in_to_reconnect">登录以重新连接</string>
@@ -1468,6 +1479,14 @@
   <string name="tab_tray_menu_tab_settings">标签页设置</string>
   <!-- Text shown in the menu for closing all tabs -->
   <string name="tab_tray_menu_item_close">关闭所有标签页</string>
+  <!-- Text shown as the title of the Close all tabs confirmation dialog in Tab Manager -->
+  <string name="tab_manager_close_all_tabs_dialog_title">关闭所有标签页？</string>
+  <!-- Text shown in the body of the Close all tabs confirmation dialog in Tab Manager -->
+  <string name="tab_manager_close_all_tabs_dialog_body">将关闭所有打开的标签页。</string>
+  <!-- Text shown on the confirm button in the Close all tabs confirmation dialog -->
+  <string name="tab_manager_close_all_tabs_dialog_confirm">关闭标签页</string>
+  <!-- Text shown on the cancel button in the Close all tabs confirmation dialog -->
+  <string name="tab_manager_close_all_tabs_dialog_cancel">取消</string>
   <!-- Text shown in the multiselect menu for bookmarking selected tabs. -->
   <string name="tab_tray_multiselect_menu_item_bookmark">书签</string>
   <!-- Content description (not visible, for screen readers etc.): Bookmarks selected tabs. -->
@@ -1486,8 +1505,6 @@
   <string name="tab_tray_multiselect_menu_content_description">选择标签页菜单</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
   <string name="tab_tray_homepage_tab">主页</string>
-  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
-  <string name="tab_tray_homepage_tab_2" tools:ignore="UnusedResources" moz:removedIn="145">%s 主页</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">将标签页从收藏集移除</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
@@ -1514,6 +1531,8 @@
   <string name="delete_from_history">删除历史记录</string>
   <!-- Postfix for private WebApp titles. %1$s is the name of the app (for example "Firefox"). -->
   <string name="pwa_site_controls_title_private">%1$s（隐私模式）</string>
+  <!-- Content description (not visible, for screen readers etc.) for the button to open the Tab Search feature to search through tabs. -->
+  <string name="tab_manager_open_tab_search">打开标签页搜索</string>
   <!--
     History
 
@@ -2088,8 +2107,6 @@
   <string name="toast_copy_link_to_clipboard">已复制到剪贴板</string>
   <!-- An option from the share dialog to sign into sync -->
   <string name="sync_sign_in">登录同步服务</string>
-  <!-- An option from the three dot menu to sync and save data -->
-  <string name="sync_menu_sync_and_save_data" tools:ignore="UnusedResources" moz:removedIn="145">同步并保存数据</string>
   <!-- An option from the three dot menu to sign in -->
   <string name="sync_menu_sign_in">登录</string>
   <!-- An option from the share dialog to send link to all other sync devices -->
@@ -2350,6 +2367,8 @@
   <string name="preference_enhanced_tracking_protection_allow_list_baseline_2">修复严重网站问题（推荐）</string>
   <!-- Preference label for the enhanced tracking protection option to fix minor site issues caused by tracker blocking -->
   <string name="preference_enhanced_tracking_protection_allow_list_convenience_label">修复轻微网站问题</string>
+  <!-- Preference description for the enhanced tracking protection option to fix minor site issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_convenience_description">需配合修复严重问题功能使用。</string>
   <!-- Preference sub header for the enhanced tracking protection options to fix issues caused by tracker blocking -->
   <string name="preference_enhanced_tracking_protection_allow_list_subheader">修复网站问题</string>
   <!-- Learn more text for the enhanced tracking protection options to fix issues caused by tracker blocking -->
@@ -2742,14 +2761,16 @@
   <string name="preferences_addresses_sync_addresses_across_devices">跨设备同步地址</string>
   <!-- Preference option for syncing addresses across devices. This is displayed when the user is signed into sync -->
   <string name="preferences_addresses_sync_addresses">同步地址</string>
+  <!-- Content description navigating back from autofill settings screen. -->
+  <string name="autofill_settings_navigate_back_button_content_description">返回</string>
   <!-- Title of the "Add card" screen -->
   <string name="credit_cards_add_card">添加卡片</string>
+  <!-- Content description for the "credit card feature" top bar back button -->
+  <string name="credit_cards_navigate_back_button_content_description">浏览上一页</string>
   <!-- Title of the "Edit card" screen -->
   <string name="credit_cards_edit_card">编辑卡片</string>
   <!-- The header for the card number of a credit card -->
   <string name="credit_cards_card_number">卡号</string>
-  <!-- The header for the expiration date of a credit card -->
-  <string name="credit_cards_expiration_date">有效期</string>
   <!-- The label for the expiration date month of a credit card to be used by a11y services -->
   <string name="credit_cards_expiration_date_month">到期月份</string>
   <!-- The label for the expiration date year of a credit card to be used by a11y services -->
@@ -3420,7 +3441,7 @@
   -->
   <string name="protection_panel_banner_protected_title">%s 正在防护</string>
   <!-- Description text for the protection panel banner when tracking protection is enabled. -->
-  <string name="protection_panel_banner_protected_description">您已受保护，我们会在发现异常情况时告知您。</string>
+  <string name="protection_panel_banner_protected_description">您已受保护。若发现异常，我们将提醒。</string>
   <!-- Label text for the Enhanced Tracking Protection toggle. -->
   <string name="protection_panel_etp_toggle_label">增强型跟踪保护</string>
   <!-- Toggle if Enhanced Tracking Protection is turned on -->
@@ -3871,16 +3892,20 @@
   <string name="settings_search_title">搜索设置</string>
   <!-- Content description (not visible, for screen readers etc.) for the button to clear the search field for settings search -->
   <string name="content_description_settings_search_clear_search">清除搜索</string>
+  <!-- Content description (not visible, for screen readers etc.) for the button to navigate back to the Settings page from the Settings Search screen. -->
+  <string name="content_description_settings_search_navigate_back">浏览上一页</string>
   <!-- Message displayed when the search field in the Settings Search screen is empty -->
   <string name="settings_search_empty_query_placeholder">无近期搜索记录</string>
   <!-- Message when error happens with Settings Search -->
-  <string name="settings_search_error_message">出错了</string>
+  <string name="settings_search_error_message" tools:ignore="UnusedResources" moz:removedIn="147">出错了</string>
   <!-- Text of button allowing to clear history of recent searches done in the settings screen. -->
   <string name="settings_search_clear_recent_searches_message">全部清除</string>
   <!-- Section header for recent search results -->
   <string name="settings_search_recent_searches_section_header">近期搜索结果</string>
   <!-- Message displayed when the search field is not empty but search results is empty. -->
   <string name="settings_search_no_results_title">无结果</string>
+  <!-- Sub-message displayed when the search field is not empty but search results is empty. -->
+  <string name="settings_search_no_results_message">试试搜索其他关键词？</string>
   <!--
     Terms of use pop up prompt
 
@@ -3909,4 +3934,8 @@
   <string name="terms_of_use_prompt_accept">接受</string>
   <!-- Label for a button to postpone accepting the terms of use -->
   <string name="terms_of_use_prompt_postpone">稍后提醒</string>
+  <!-- The first active link used in privacy_notice_updated_homepage_message -->
+  <string name="privacy_notice_updated_homepage_message_privacy_notice" tools:ignore="UnusedResources">隐私声明</string>
+  <!-- The second active link used in privacy_notice_updated_homepage_message -->
+  <string name="privacy_notice_updated_homepage_message_learn_more" tools:ignore="UnusedResources">详细了解</string>
 </resources>

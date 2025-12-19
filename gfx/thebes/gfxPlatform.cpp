@@ -866,17 +866,25 @@ void gfxPlatform::Init() {
         StaticPrefs::layers_acceleration_disabled_AtStartup_DoNotUseDirectly(),
         StaticPrefs::
             layers_acceleration_force_enabled_AtStartup_DoNotUseDirectly(),
-        StaticPrefs::layers_d3d11_force_warp_AtStartup());
+#ifdef XP_WIN
+        StaticPrefs::layers_d3d11_force_warp_AtStartup()
+#else
+        false
+#endif
+    );
     // WebGL prefs
     forcedPrefs.AppendPrintf(
         "-W%d%d%d%d%d%d%d", StaticPrefs::webgl_angle_force_d3d11(),
         StaticPrefs::webgl_angle_force_warp(), StaticPrefs::webgl_disabled(),
-        StaticPrefs::webgl_disable_angle(), StaticPrefs::webgl_dxgl_enabled(),
+        StaticPrefs::webgl_disable_angle(),
+#ifdef XP_WIN
+        StaticPrefs::webgl_dxgl_enabled(),
+#else
+        false,
+#endif
         StaticPrefs::webgl_force_enabled(), StaticPrefs::webgl_msaa_force());
     // Prefs that don't fit into any of the other sections
-    forcedPrefs.AppendPrintf("-T%d%d) ",
-                             StaticPrefs::gfx_android_rgb16_force_AtStartup(),
-                             StaticPrefs::gfx_canvas_accelerated());
+    forcedPrefs.AppendPrintf("-T%d) ", StaticPrefs::gfx_canvas_accelerated());
     ScopedGfxFeatureReporter::AppNote(forcedPrefs);
   }
 
@@ -1238,16 +1246,6 @@ bool gfxPlatform::UseRemoteCanvas() {
 bool gfxPlatform::IsBackendAccelerated(
     const mozilla::gfx::BackendType aBackendType) {
   return false;
-}
-
-/* static */
-bool gfxPlatform::CanMigrateMacGPUs() {
-  int32_t pMigration = StaticPrefs::gfx_compositor_gpu_migration();
-
-  bool forceDisable = pMigration == 0;
-  bool forceEnable = pMigration == 2;
-
-  return forceEnable || !forceDisable;
 }
 
 static bool sLayersIPCIsUp = false;
@@ -3553,6 +3551,14 @@ void gfxPlatform::ReInitFrameRate(const char* aPrefIgnored,
           ? gPlatform->GetSoftwareVsyncSource()
           : gPlatform->GetGlobalHardwareVsyncSource();
   gPlatform->mVsyncDispatcher->SetVsyncSource(vsyncSource);
+}
+
+/* static */
+void gfxPlatform::ResetHardwareVsyncSource() {
+  if (gPlatform->mGlobalHardwareVsyncSource) {
+    gPlatform->mGlobalHardwareVsyncSource->Shutdown();
+    gPlatform->mGlobalHardwareVsyncSource = nullptr;
+  }
 }
 
 const char* gfxPlatform::GetAzureCanvasBackend() const {

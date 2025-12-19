@@ -607,6 +607,9 @@ struct JSRuntime {
 
   template <typename T>
   struct GlobalObjectWatchersLinkAccess {
+    static const mozilla::DoublyLinkedListElement<T>& Get(const T* aThis) {
+      return aThis->onNewGlobalObjectWatchersLink;
+    }
     static mozilla::DoublyLinkedListElement<T>& Get(T* aThis) {
       return aThis->onNewGlobalObjectWatchersLink;
     }
@@ -614,6 +617,9 @@ struct JSRuntime {
 
   template <typename T>
   struct GarbageCollectionWatchersLinkAccess {
+    static const mozilla::DoublyLinkedListElement<T>& Get(const T* aThis) {
+      return aThis->onGarbageCollectionWatchersLink;
+    }
     static mozilla::DoublyLinkedListElement<T>& Get(T* aThis) {
       return aThis->onGarbageCollectionWatchersLink;
     }
@@ -736,6 +742,10 @@ struct JSRuntime {
   [[nodiscard]] bool createJitRuntime(JSContext* cx);
   js::jit::JitRuntime* jitRuntime() const { return jitRuntime_.ref(); }
   bool hasJitRuntime() const { return !!jitRuntime_; }
+  static constexpr size_t offsetOfJitRuntime() {
+    return offsetof(JSRuntime, jitRuntime_) +
+           js::UnprotectedData<js::jit::JitRuntime*>::offsetOfValue();
+  }
 
  private:
   // Used to generate random keys for hash tables.

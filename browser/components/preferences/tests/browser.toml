@@ -2,6 +2,10 @@
 prefs = [
   "extensions.formautofill.addresses.available='on'",
   "signon.management.page.os-auth.enabled=true",
+  "browser.backup.archive.enabled=false",
+  "browser.backup.restore.enabled=false",
+  "browser.backup.archive.overridePlatformCheck=true",
+  "browser.backup.restore.overridePlatformCheck=true",
 ]
 support-files = [
   "head.js",
@@ -9,11 +13,6 @@ support-files = [
   "addons/pl-dictionary.xpi",
   "addons/set_homepage.xpi",
   "addons/set_newtab.xpi",
-]
-skip-if = [
-  "os == 'linux' && os_version == '18.04' && asan", # manifest runs too long
-  "os == 'linux' && os_version == '18.04' && tsan", # manifest runs too long
-  "win11_2009 && asan", # manifest runs too long
 ]
 tags = "os_integration"
 
@@ -23,6 +22,8 @@ tags = "os_integration"
 run-if = [
   "updater",
 ]
+
+["browser_aiFeatures.js"]
 
 ["browser_application_xml_handle_internally.js"]
 
@@ -53,6 +54,8 @@ support-files = ["browser_bug1184989_prevent_scrolling_when_preferences_flipped.
 ["browser_bug1547020_lockedDownloadDir.js"]
 
 ["browser_bug1579418.js"]
+
+["browser_capability_filter.js"]
 
 ["browser_cert_export.js"]
 
@@ -93,6 +96,10 @@ run-if = [
 ["browser_cookie_exceptions_addRemove.js"]
 
 ["browser_cookies_exceptions.js"]
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && opt",
+]
+
 
 ["browser_defaultbrowser_alwayscheck.js"]
 
@@ -102,13 +109,20 @@ run-if = [
 
 ["browser_ensure_prefs_bindings_initted.js"]
 
+["browser_etp_advanced.js"]
+
+["browser_etp_customize.js"]
+
 ["browser_etp_exceptions_dialog.js"]
+
+["browser_etp_status.js"]
 
 ["browser_experimental_features.js"]
 
 ["browser_experimental_features_filter.js"]
 skip-if = [
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64'", # Bug 1969933
+  "os == 'linux' && os_version == '22.04' && arch == 'x86_64' && display == 'wayland'", # Bug 1969933
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11'", # Bug 1969933
   "os == 'mac' && os_version == '10.15' && arch == 'x86_64' && opt", # Bug 1969933
   "os == 'win' && os_version == '11.26100' && arch == 'x86'", # Bug 1969933
   "os == 'win' && os_version == '11.26100' && arch == 'x86_64'", # Bug 1969933
@@ -122,8 +136,8 @@ skip-if = [
 
 ["browser_extension_controlled.js"]
 skip-if = [
-  "ccov && os == 'linux'", # Linux: bug 1613530
-  "ccov && os == 'win'", # Windows: bug 1437051
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && ccov", # Linux: bug 1613530
+  "os == 'win' && ccov", # Windows: bug 1437051
   "tsan",
 ]
 
@@ -202,7 +216,7 @@ skip-if = [
 
 ["browser_privacy_allowListPreference.js"]
 skip-if = [
-  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && tsan", # Bug 1984525
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && tsan", # Bug 1984525
 ]
 
 ["browser_privacy_allowListPreference_dialog.js"]
@@ -234,8 +248,14 @@ skip-if = [
 ["browser_privacy_uploadEnabled.js"]
 
 ["browser_privacypane_2.js"]
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && a11y_checks && opt",
+]
 
 ["browser_privacypane_3.js"]
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && a11y_checks && opt",
+]
 
 ["browser_proxy_backup.js"]
 
@@ -295,6 +315,9 @@ skip-if = [
 ["browser_search_userEngineDialog.js"]
 
 ["browser_search_within_preferences_1.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && ccov",
+]
 
 ["browser_search_within_preferences_2.js"]
 
@@ -335,6 +358,8 @@ support-files = [
 ["browser_sync_disabled.js"]
 
 ["browser_sync_pairing.js"]
+
+["browser_sync_settings_ui.js"]
 
 ["browser_tabs_open_external_next_to_active_tab.js"]
 

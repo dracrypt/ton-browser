@@ -452,6 +452,17 @@ export class DiscoveryStreamFeed {
           );
           return null;
         }
+
+        // ObliviousHTTP.ohttpRequest only accepts a key/value object, and not
+        // a Headers instance. We normalize any headers to a key/value object.
+        //
+        // We use instanceof here since isInstance isn't available for node
+        // tests like DiscoveryStreamFeed.test.js.
+        // eslint-disable-next-line mozilla/use-isInstance
+        if (options.headers && options.headers instanceof Headers) {
+          options.headers = Object.fromEntries(options.headers);
+        }
+
         fetchPromise = lazy.ObliviousHTTP.ohttpRequest(
           ohttpRelayURL,
           config,
@@ -803,8 +814,8 @@ export class DiscoveryStreamFeed {
   /**
    * Adds the promise result to newFeeds and pushes a promise to newsFeedsPromises.
    *
-   * @param {Object} Has both newFeedsPromises (Array) and newFeeds (Object)
-   * @param {Boolean} isStartup We have different cache handling for startup.
+   * @param {object} Has both newFeedsPromises (Array) and newFeeds (Object)
+   * @param {boolean} isStartup We have different cache handling for startup.
    * @returns {Function} We return a function so we can contain
    *                     the scope for isStartup and the promises object.
    *                     Combines feed results and promises for each component with a feed.
@@ -880,7 +891,7 @@ export class DiscoveryStreamFeed {
    * Filters out components with no feeds, and combines all feeds on this component
    * with the feeds from other components.
    *
-   * @param {Boolean} isStartup We have different cache handling for startup.
+   * @param {boolean} isStartup We have different cache handling for startup.
    * @returns {Function} We return a function so we can contain the scope for isStartup.
    *                     Reduces feeds into promises and feed data.
    */
@@ -896,9 +907,9 @@ export class DiscoveryStreamFeed {
   /**
    * Filters out rows with no components, and gets us a promise for each unique feed.
    *
-   * @param {Object} layout This is the Discovery Stream layout object.
-   * @param {Boolean} isStartup We have different cache handling for startup.
-   * @returns {Object} An object with newFeedsPromises (Array) and newFeeds (Object),
+   * @param {object} layout This is the Discovery Stream layout object.
+   * @param {boolean} isStartup We have different cache handling for startup.
+   * @returns {object} An object with newFeedsPromises (Array) and newFeeds (Object),
    *                   we can Promise.all newFeedsPromises to get completed data in newFeeds.
    */
   buildFeedPromises(layout, isStartup, sendUpdate) {
@@ -987,6 +998,7 @@ export class DiscoveryStreamFeed {
           sponsor: spoc.sponsor,
           title: spoc.title,
           url: spoc.url,
+          attribution: spoc.attributions || null,
         })),
       };
     }
@@ -1189,6 +1201,8 @@ export class DiscoveryStreamFeed {
           ...(placements.length ? { placements } : {}),
         };
 
+        const marsOhttpEnabled = state.Prefs.values[PREF_UNIFIED_ADS_OHTTP];
+
         // Bug 1964715: Remove this logic when AdsFeed is 100% enabled
         if (unifiedAdsEnabled && !adsFeedEnabled) {
           const endpointBaseUrl = state.Prefs.values[PREF_UNIFIED_ADS_ENDPOINT];
@@ -1196,15 +1210,13 @@ export class DiscoveryStreamFeed {
           unifiedAdsPlacements = this.getAdsPlacements();
           const blockedSponsors =
             state.Prefs.values[PREF_UNIFIED_ADS_BLOCKED_LIST];
-          const preFlightConfig =
-            state.Prefs.values?.trainhopConfig?.marsPreFlight || {};
 
           // We need some basic data that we can pass along to the ohttp request.
           // We purposefully don't use ohttp on this request. We also expect to
           // mostly hit the HTTP cache rather than the network with these requests.
-          if (preFlightConfig.enabled) {
+          if (marsOhttpEnabled) {
             const preFlight = await this.fetchFromEndpoint(
-              `${endpointBaseUrl}v1/o`,
+              `${endpointBaseUrl}v1/ads-preflight`,
               {
                 method: "GET",
               }
@@ -1217,6 +1229,7 @@ export class DiscoveryStreamFeed {
                 preFlight.normalized_ua || lazy.userAgent
               );
               headers.append("X-Geoname-ID", preFlight.geoname_id);
+              headers.append("X-Geo-Location", preFlight.geo_location);
             }
           }
 
@@ -1226,8 +1239,6 @@ export class DiscoveryStreamFeed {
             blocks: blockedSponsors.split(","),
           };
         }
-
-        const marsOhttpEnabled = state.Prefs.values[PREF_UNIFIED_ADS_OHTTP];
 
         let spocsResponse;
         // Logic decision point: Query ads servers in this file or utilize AdsFeed method
@@ -2086,7 +2097,7 @@ export class DiscoveryStreamFeed {
   }
 
   /**
-   * @typedef {Object} RefreshAll
+   * @typedef {object} RefreshAll
    * @property {boolean} updateOpenTabs - Sends updates to open tabs immediately if true,
    *                                      updates in background if false
    * @property {boolean} isStartup - When the function is called at browser startup
@@ -2214,6 +2225,7 @@ export class DiscoveryStreamFeed {
     await this.resetContentCache();
     // Reset in-memory caches.
     this._isContextualAds = undefined;
+    this._doLocalInferredRerank = undefined;
     this._spocsCacheUpdateTime = undefined;
     this._spocsOnDemand = undefined;
   }
@@ -2490,8 +2502,13 @@ export class DiscoveryStreamFeed {
         // This is a config reset directly related to Discovery Stream pref.
         this.configReset();
         break;
-      case PREF_CONTEXTUAL_ADS:
       case PREF_USER_INFERRED_PERSONALIZATION:
+        this.configReset();
+        this._isContextualAds = undefined;
+        this._doLocalInferredRerank = undefined;
+        await this.resetContentCache();
+        break;
+      case PREF_CONTEXTUAL_ADS:
       case PREF_SYSTEM_INFERRED_PERSONALIZATION:
         this._isContextualAds = undefined;
         this._doLocalInferredRerank = undefined;

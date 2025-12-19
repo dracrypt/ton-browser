@@ -91,13 +91,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "TEXT_FRAGMENTS_SHOW_CONTEXT_MENU",
-  "dom.text_fragments.create_text_fragment.enabled",
-  false
-);
-
 const PASSWORD_FIELDNAME_HINTS = ["current-password", "new-password"];
 const USERNAME_FIELDNAME_HINT = "username";
 
@@ -456,9 +449,7 @@ export class nsContextMenu {
 
   initTextFragmentItems() {
     const shouldShow =
-      lazy.TEXT_FRAGMENTS_SHOW_CONTEXT_MENU &&
       lazy.TEXT_FRAGMENTS_ENABLED &&
-      lazy.STRIP_ON_SHARE_ENABLED &&
       !(
         this.inPDFViewer ||
         this.inFrame ||
@@ -467,7 +458,10 @@ export class nsContextMenu {
       ) &&
       (this.hasTextFragments || this.isContentSelected);
     this.showItem("context-copy-link-to-highlight", shouldShow);
-    this.showItem("context-copy-clean-link-to-highlight", shouldShow);
+    this.showItem(
+      "context-copy-clean-link-to-highlight",
+      shouldShow && lazy.STRIP_ON_SHARE_ENABLED
+    );
 
     // disables both options by default, while API tries to build a text fragment
     this.setItemAttr("context-copy-link-to-highlight", "disabled", true);
@@ -479,12 +473,7 @@ export class nsContextMenu {
   }
 
   async getTextDirective() {
-    if (
-      !Services.prefs.getBoolPref(
-        "dom.text_fragments.create_text_fragment.enabled",
-        false
-      )
-    ) {
+    if (!lazy.TEXT_FRAGMENTS_ENABLED) {
       return;
     }
     this.textFragmentURL = await this.actor.getTextDirective();
@@ -1261,19 +1250,7 @@ export class nsContextMenu {
       }
 
       // Update sub-menu items.
-      let fragment = lazy.LoginManagerContextMenu.addLoginsToMenu(
-        this.targetIdentifier,
-        this.browser,
-        formOrigin
-      );
-
-      if (!fragment) {
-        return;
-      }
-
-      showUseSavedLogin = true;
-      let popup = document.getElementById("fill-login-popup");
-      popup.appendChild(fragment);
+      this.updatePasswordManagerSubMenuItems(document, formOrigin);
     } finally {
       const documentURI = this.contentData?.documentURIObject;
       const showRelay =
@@ -1297,6 +1274,25 @@ export class nsContextMenu {
           : true
       );
     }
+  }
+
+  async updatePasswordManagerSubMenuItems(document, formOrigin) {
+    const fragment = await lazy.LoginManagerContextMenu.addLoginsToMenu(
+      this.targetIdentifier,
+      this.browser,
+      formOrigin
+    );
+
+    if (!fragment) {
+      return;
+    }
+
+    let popup = document.getElementById("fill-login-popup");
+    popup.appendChild(fragment);
+
+    this.showItem("fill-login", true);
+
+    this.setItemAttr("passwordmgr-items-separator", "ensureHidden", null);
   }
 
   initSyncItems() {
@@ -2334,9 +2330,9 @@ export class nsContextMenu {
    * Show/hide one item (specified via name or the item element itself).
    * If the element is not found, then this function finishes silently.
    *
-   * @param {Element|String} aItemOrId The item element or the name of the element
+   * @param {Element | string} aItemOrId The item element or the name of the element
    *                                   to show.
-   * @param {Boolean} aShow Set to true to show the item, false to hide it.
+   * @param {boolean} aShow Set to true to show the item, false to hide it.
    */
   showItem(aItemOrId, aShow) {
     var item =
@@ -2416,7 +2412,7 @@ export class nsContextMenu {
   /**
    * Checks if there is a query parameter that can be stripped
    *
-   * @returns {Boolean}
+   * @returns {boolean}
    */
   #canStripParams(uri = this.linkURI) {
     if (!uri) {
@@ -2433,7 +2429,7 @@ export class nsContextMenu {
   /**
    * Checks if a webpage is a secure interal webpage
    *
-   * @returns {Boolean}
+   * @returns {boolean}
    */
   isSecureAboutPage() {
     let { currentURI } = this.browser;
@@ -2825,6 +2821,11 @@ export class nsContextMenu {
       return;
     }
 
+    if (isPrivateSearchMenuitem && !lazy.PrivateBrowsingUtils.enabled) {
+      menuitem.hidden = true;
+      return;
+    }
+
     let isBrowserPrivate = lazy.PrivateBrowsingUtils.isBrowserPrivate(
       this.browser
     );
@@ -2939,7 +2940,7 @@ export class nsContextMenu {
       engine,
       policyContainer,
       searchUrlType,
-      usePrivate,
+      usePrivateWindow: usePrivate,
       window: this.window,
       searchText: searchTerms,
       triggeringPrincipal: principal,

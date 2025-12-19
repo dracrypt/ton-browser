@@ -173,6 +173,8 @@ XPCOMUtils.defineLazyServiceGetters(lazy, {
 });
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AIWindow:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
   AsyncShutdown: "resource://gre/modules/AsyncShutdown.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   DevToolsShim: "chrome://devtools-startup/content/DevToolsShim.sys.mjs",
@@ -272,7 +274,7 @@ export var SessionStore = {
   /**
    * Get the collection of all matching windows tracked by SessionStore
    *
-   * @param {Window|Object} [aWindowOrOptions] Optionally an options object or a window to used to determine if we're filtering for private or non-private windows
+   * @param {Window | object} [aWindowOrOptions] Optionally an options object or a window to used to determine if we're filtering for private or non-private windows
    * @param {boolean} [aWindowOrOptions.private] Determine if we should filter for private or non-private windows
    */
   getWindows(aWindowOrOptions) {
@@ -368,7 +370,7 @@ export var SessionStore = {
   /**
    * Get the number of closed tabs associated with all matching windows
    *
-   * @param {Window|Object} [aOptions]
+   * @param {Window | object} [aOptions]
    *        Either a DOMWindow (see aOptions.sourceWindow) or an object with properties
             to identify which closed tabs to include in the count.
    * @param {Window} aOptions.sourceWindow
@@ -408,7 +410,7 @@ export var SessionStore = {
   /**
    * Get the closed tab data associated with all matching windows
    *
-   * @param {Window|Object} [aOptions]
+   * @param {Window | object} [aOptions]
    *        Either a DOMWindow (see aOptions.sourceWindow) or an object with properties
             to identify which closed tabs to get data from
    * @param {Window} aOptions.sourceWindow
@@ -468,10 +470,10 @@ export var SessionStore = {
   /**
    * Re-open a closed tab
    *
-   * @param {Window|Object} aSource
+   * @param {Window | object} aSource
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
-   * @param {String} aSource.sourceWindowId
+   * @param {string} aSource.sourceWindowId
             A SessionStore window id used to look up the window where the tab was closed
    * @param {number} aSource.sourceClosedId
             The closedId used to look up the closed window where the tab was closed
@@ -487,10 +489,10 @@ export var SessionStore = {
   /**
    * Re-open a tab from a closed window, which corresponds to the closedId
    *
-   * @param {Window|Object} aSource
+   * @param {Window | object} aSource
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
-   * @param {String} aSource.sourceWindowId
+   * @param {string} aSource.sourceWindowId
             A SessionStore window id used to look up the window where the tab was closed
    * @param {number} aSource.sourceClosedId
             The closedId used to look up the closed window where the tab was closed
@@ -516,10 +518,10 @@ export var SessionStore = {
    * Removes the record at the given index so it cannot be un-closed or appear
    * in a list of recently-closed tabs
    *
-   * @param {Window|Object} aSource
+   * @param {Window | object} aSource
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
-   * @param {String} aSource.sourceWindowId
+   * @param {string} aSource.sourceWindowId
             A SessionStore window id used to look up the window where the tab was closed
    * @param {number} aSource.sourceClosedId
             The closedId used to look up the closed window where the tab was closed
@@ -536,10 +538,10 @@ export var SessionStore = {
    * Removes the record at the given index so it cannot be un-closed or appear
    * in a list of recently-closed tabs
    *
-   * @param {Window|Object} aSource
+   * @param {Window | object} aSource
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
-   * @param {String} aSource.sourceWindowId
+   * @param {string} aSource.sourceWindowId
             A SessionStore window id used to look up the window where the tab group was closed
    * @param {number} aSource.sourceClosedId
             The closedId used to look up the closed window where the tab group was closed
@@ -559,13 +561,13 @@ export var SessionStore = {
    *
    * @param {integer} aClosedId
    *        The closedId of the tab
-   * @param {Window|Object} aSourceOptions
+   * @param {Window | object} aSourceOptions
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
    * @param {boolean} [aSourceOptions.includePrivate = true]
             If no other means of resolving a source window is given, this flag is used to
             constrain a search across all open window's closed tabs.
-   * @param {String} aSourceOptions.sourceWindowId
+   * @param {string} aSourceOptions.sourceWindowId
             A SessionStore window id used to look up the window where the tab was closed
    * @param {number} aSourceOptions.sourceClosedId
             The closedId used to look up the closed window where the tab was closed
@@ -603,7 +605,7 @@ export var SessionStore = {
   /**
    * Look up a window tracked by SessionStore by its id
    *
-   * @param {String} aSessionStoreId
+   * @param {string} aSessionStoreId
    */
   getWindowById: function ss_getWindowById(aSessionStoreId) {
     return SessionStoreInternal.getWindowById(aSessionStoreId);
@@ -910,7 +912,7 @@ export var SessionStore = {
   /**
    * Re-open a closed tab group
    *
-   * @param {Window|Object} source
+   * @param {Window | object} source
    *        Either a DOMWindow or an object with properties to resolve to the window
    *        the tab was previously open in.
    * @param {string} source.sourceWindowId
@@ -997,7 +999,7 @@ export var SessionStore = {
    * Validates that a state object matches the schema
    * defined in browser/components/sessionstore/session.schema.json
    *
-   * @param {Object} [state] State object to validate. If not provided,
+   * @param {object} [state] State object to validate. If not provided,
    *   will validate the current session state.
    * @returns {Promise} A promise which resolves to a validation result object
    */
@@ -1088,7 +1090,7 @@ var SessionStoreInternal = {
   /**
    * states for all currently opened windows
    *
-   * @type {object.<WindowID, WindowStateData>}
+   * @type {{[key: WindowID]: WindowStateData}}
    */
   _windows: {},
 
@@ -1123,7 +1125,7 @@ var SessionStoreInternal = {
   _tabsRestoringCount: 0,
 
   /**
-   * @typedef {Object} CloseAction
+   * @typedef {object} CloseAction
    * @property {string} type
    *   What the close action acted upon. One of either _LAST_ACTION_CLOSED_TAB or
    *   _LAST_ACTION_CLOSED_WINDOW
@@ -2044,6 +2046,10 @@ var SessionStoreInternal = {
       this._windows[aWindow.__SSi].isTaskbarTab = true;
     }
 
+    if (lazy.AIWindow.isAIWindowActiveAndEnabled(aWindow)) {
+      this._windows[aWindow.__SSi].isAIWindow = true;
+    }
+
     let tabbrowser = aWindow.gBrowser;
 
     // add tab change listeners to all already existing tabs
@@ -2142,16 +2148,21 @@ var SessionStoreInternal = {
       // after starting up with a single private or web app window.
       // Let's restore the session we actually wanted to restore at startup.
     } else if (this._deferredInitialState && isRegularWindow) {
-      // global data must be restored before restoreWindow is called so that
-      // it happens before observers are notified
-      this._globalState.setFromState(this._deferredInitialState);
-
-      this._restoreCount = this._deferredInitialState.windows
-        ? this._deferredInitialState.windows.length
-        : 0;
-      this.restoreWindows(aWindow, this._deferredInitialState, {
-        firstWindow: true,
-      });
+      // Only restore the deferred session if SessionStartup indicates we should
+      // restore (e.g., crash recovery or user preference to restore sessions).
+      // This prevents incorrect session restoration when a private window was
+      // opened first followed by a normal window. See Bug 1938752.
+      if (lazy.SessionStartup.willRestore()) {
+        // global data must be restored before restoreWindow is called so that
+        // it happens before observers are notified
+        this._globalState.setFromState(this._deferredInitialState);
+        this._restoreCount = this._deferredInitialState.windows
+          ? this._deferredInitialState.windows.length
+          : 0;
+        this.restoreWindows(aWindow, this._deferredInitialState, {
+          firstWindow: true,
+        });
+      }
       this._deferredInitialState = null;
     } else if (
       this._restoreLastWindow &&
@@ -2255,6 +2266,12 @@ var SessionStoreInternal = {
    *        Window reference
    */
   onBeforeBrowserWindowShown(aWindow) {
+    // Do not track Document Picture-in-Picture windows since these are
+    // ephemeral and tied to a specific tab's browser document.
+    if (aWindow.browsingContext.isDocumentPiP) {
+      return;
+    }
+
     // Register the window.
     this.onLoad(aWindow);
 
@@ -5745,7 +5762,7 @@ var SessionStoreInternal = {
    *
    * @param tabData
    *        an array of data to be restored
-   * @param {String} windowId
+   * @param {string} windowId
    *        The SessionStore id for the window these tabs should be associated with
    * @returns the updated tabData array
    */
@@ -6966,11 +6983,8 @@ var SessionStoreInternal = {
    *        Object containing session data
    */
   _openWindowWithState: function ssi_openWindowWithState(aState) {
-    var argString = Cc["@mozilla.org/supports-string;1"].createInstance(
-      Ci.nsISupportsString
-    );
-    argString.data = "";
-
+    // Build arguments string
+    let argString;
     // Build feature string
     let features;
     let winState = aState.windows[0];
@@ -7013,8 +7027,23 @@ var SessionStoreInternal = {
       }
     });
 
+    // A window CANNOT be both a Private Window and an AI Window
     if (winState.isPrivate) {
       features.push("private");
+    } else if (winState.isAIWindow) {
+      argString = lazy.AIWindow.handleAIWindowOptions({
+        openerWindow: null,
+        args: argString,
+        aiWindow: winState.isAIWindow,
+        restoreSession: true,
+      });
+    }
+
+    if (!argString) {
+      argString = Cc["@mozilla.org/supports-string;1"].createInstance(
+        Ci.nsISupportsString
+      );
+      argString.data = "";
     }
 
     this._log.debug(
@@ -8327,7 +8356,7 @@ var SessionStoreInternal = {
   },
 
   /**
-   * @param {Window|Object} source
+   * @param {Window | object} source
    * @param {string} tabGroupId
    * @param {Window} [targetWindow]
    * @returns {MozTabbrowserTabGroup}
@@ -8499,7 +8528,7 @@ var SessionStoreInternal = {
    * Validates that a state object matches the schema
    * defined in browser/components/sessionstore/session.schema.json
    *
-   * @param {Object} [state] State object to validate. If not provided,
+   * @param {object} [state] State object to validate. If not provided,
    *   will validate the current session state.
    * @returns {Promise} A promise which resolves to a validation result object
    */

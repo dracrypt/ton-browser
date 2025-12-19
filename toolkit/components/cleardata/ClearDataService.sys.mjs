@@ -92,7 +92,7 @@ function maybeFixupIpv6(host) {
  * aSchemelessSite and aOriginAttributesPattern.
  * @param {string} aSchemelessSite - Domain to check for. Must be a valid,
  * non-empty baseDomain string.
- * @param {Object} [aOriginAttributesPattern] - Additional OriginAttributes
+ * @param {object} [aOriginAttributesPattern] - Additional OriginAttributes
  * filtering using an OriginAttributesPattern. Defaults to {} which matches all.
  * @returns {boolean} Whether the (host, originAttributes) or principal matches
  * the site.
@@ -1131,44 +1131,12 @@ const QuotaCleaner = {
   },
 };
 
-const PredictorNetworkCleaner = {
-  async deleteAll() {
-    // Predictive network data - like cache, no way to clear this per
-    // domain, so just trash it all
-    let np = Cc["@mozilla.org/network/predictor;1"].getService(
-      Ci.nsINetworkPredictor
-    );
-    np.reset();
-  },
-
-  // TODO: We should call the NetworkPredictor to clear by principal, rather
-  // than over-clearing for user requests or bailing out for programmatic calls.
-  async deleteByPrincipal(aPrincipal, aIsUserRequest) {
-    if (!aIsUserRequest) {
-      return;
-    }
-    await this.deleteAll();
-  },
-
-  // TODO: Same as above, but for base domain.
-  async deleteBySite(
-    _aSchemelessSite,
-    _aOriginAttributesPattern,
-    aIsUserRequest
-  ) {
-    if (!aIsUserRequest) {
-      return;
-    }
-    await this.deleteAll();
-  },
-};
-
 const PushNotificationsCleaner = {
   /**
    * Clear entries for aDomain including subdomains of aDomain.
    *
    * @param {string} aDomain - Domain to clear data for.
-   * @param {Object} aOriginAttributesPattern - Optional pattern to filter OriginAttributes.
+   * @param {object} aOriginAttributesPattern - Optional pattern to filter OriginAttributes.
    * @returns {Promise} a promise which resolves once data has been cleared.
    */
   _deleteByRootDomain(aDomain, aOriginAttributesPattern = null) {
@@ -2330,11 +2298,6 @@ const FLAGS_MAP = [
   },
 
   { flag: Ci.nsIClearDataService.CLEAR_DOM_QUOTA, cleaners: [QuotaCleaner] },
-
-  {
-    flag: Ci.nsIClearDataService.CLEAR_PREDICTOR_NETWORK_DATA,
-    cleaners: [PredictorNetworkCleaner],
-  },
 
   {
     flag: Ci.nsIClearDataService.CLEAR_DOM_PUSH_NOTIFICATIONS,

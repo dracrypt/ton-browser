@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "Predictor.h"
 #include "mozilla/Components.h"
 #include "mozilla/dom/TypedArray.h"
 #include "mozilla/HoldDropJSObjects.h"
@@ -1221,6 +1220,8 @@ int64_t nsUDPSocket::GetFileDescriptor() {
 void nsUDPSocket::EnableWritePoll() {
   mPollFlags = (PR_POLL_WRITE | PR_POLL_READ | PR_POLL_EXCEPT);
 }
+
+bool nsUDPSocket::IsSocketClosed() { return mFD == nullptr; }
 
 NS_IMETHODIMP
 nsUDPSocket::SendBinaryStream(const nsACString& aHost, uint16_t aPort,

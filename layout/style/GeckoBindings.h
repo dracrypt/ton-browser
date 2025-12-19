@@ -109,6 +109,7 @@ const nsINode* Gecko_GetNextStyleChild(mozilla::dom::StyleChildrenIterator*);
 nsAtom* Gecko_Element_ImportedPart(const nsAttrValue*, nsAtom*);
 nsAtom** Gecko_Element_ExportedParts(const nsAttrValue*, nsAtom*,
                                      size_t* aOutLength);
+uint64_t Gecko_Element_GetSubtreeBloomFilter(const mozilla::dom::Element*);
 
 NS_DECL_THREADSAFE_FFI_REFCOUNTING(mozilla::css::SheetLoadDataHolder,
                                    SheetLoadDataHolder);
@@ -147,11 +148,15 @@ const mozilla::PreferenceSheet::Prefs* Gecko_GetPrefSheetPrefs(
 
 bool Gecko_IsTableBorderNonzero(const mozilla::dom::Element* element);
 bool Gecko_IsSelectListBox(const mozilla::dom::Element* element);
+bool Gecko_HasActiveViewTransitionTypes(
+    const mozilla::dom::Document*, const nsTArray<mozilla::StyleCustomIdent>*);
 
 // Attributes.
 #define SERVO_DECLARE_ELEMENT_ATTR_MATCHING_FUNCTIONS(prefix_, implementor_) \
   nsAtom* prefix_##LangValue(implementor_ element);
 
+bool Gecko_LookupAttrValue(const mozilla::dom::Element* aElement,
+                           const nsAtom& aName, nsAString& aResult);
 bool Gecko_AttrEquals(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);
 bool Gecko_AttrDashEquals(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);
 bool Gecko_AttrIncludes(const nsAttrValue*, const nsAtom*, bool aIgnoreCase);

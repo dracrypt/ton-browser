@@ -323,12 +323,11 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
         val readerModeAction = BrowserToolbar.ToggleButton(
             image = AppCompatResources.getDrawable(
                 context,
-                R.drawable.ic_readermode,
+                iconsR.drawable.mozac_ic_reader_view_24,
             )!!,
-            imageSelected =
-            AppCompatResources.getDrawable(
+            imageSelected = AppCompatResources.getDrawable(
                 context,
-                R.drawable.ic_readermode_selected,
+                iconsR.drawable.mozac_ic_reader_view_fill_24,
             )!!,
             contentDescription = context.getString(R.string.browser_menu_read),
             contentDescriptionSelected = context.getString(R.string.browser_menu_read_close),
@@ -636,7 +635,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                                 url = tab.content.url,
                                 title = tab.content.title,
                                 isLocalPdf = tab.content.url.isContentUrl(),
-                                isSecured = tab.content.securityInfo.secure,
+                                isSecured = tab.content.securityInfo.isSecure,
                                 sitePermissions = sitePermissions,
                                 certificateName = tab.content.securityInfo.issuer,
                                 permissionHighlights = tab.content.permissionHighlights,
@@ -649,7 +648,7 @@ class BrowserFragment : BaseBrowserFragment(), UserInteractionHandler {
                                 url = tab.content.url,
                                 title = tab.content.title,
                                 isLocalPdf = tab.content.url.isContentUrl(),
-                                isSecured = tab.content.securityInfo.secure,
+                                isSecured = tab.content.securityInfo.isSecure,
                                 sitePermissions = sitePermissions,
                                 gravity = getAppropriateLayoutGravity(),
                                 certificateName = tab.content.securityInfo.issuer,

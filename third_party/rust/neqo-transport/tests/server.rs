@@ -157,7 +157,7 @@ fn duplicate_initial_new_path() {
     assert_eq!(*client.state(), State::Init);
     let initial = client.process_output(now()).dgram().unwrap();
     let other = Datagram::new(
-        SocketAddr::new(initial.source().ip(), initial.source().port() ^ 23),
+        SocketAddr::new(initial.source().ip(), initial.source().port() ^ 0b1_01110), // 23
         initial.destination(),
         initial.tos(),
         &initial[..],
@@ -449,7 +449,7 @@ fn bad_client_initial() {
         .unwrap();
 
     let mut payload_enc = Encoder::from(plaintext);
-    payload_enc.encode(&[0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
+    payload_enc.encode([0x08, 0x02, 0x00, 0x00]); // Add a stream frame.
 
     // Make a new header with a 1 byte packet number length.
     let mut header_enc = Encoder::new();
@@ -541,7 +541,7 @@ fn bad_client_initial_connection_close() {
     let (_, pn) = header_protection::remove(&hp, header, payload);
 
     let mut payload_enc = Encoder::with_capacity(MIN_INITIAL_PACKET_SIZE);
-    payload_enc.encode(&[0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
+    payload_enc.encode([0x1c, 0x01, 0x00, 0x00]); // Add a CONNECTION_CLOSE frame.
 
     // Make a new header with a 1 byte packet number length.
     let mut header_enc = Encoder::new();

@@ -246,7 +246,7 @@ class GeckoEngineSessionTest {
             object : EngineSession.Observer {
                 override fun onLoadingStateChange(loading: Boolean) { observedLoadingState = loading }
                 override fun onProgress(progress: Int) { observedProgress = progress }
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     // We cannot assert on actual parameters as SecurityInfo's fields can't be set
                     // from the outside and its constructor isn't accessible either.
                     observedSecurityChange = true
@@ -864,7 +864,7 @@ class GeckoEngineSessionTest {
         var loadingStateChangeObserved = false
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedSecurityChange = true
                 }
 
@@ -1816,6 +1816,7 @@ class GeckoEngineSessionTest {
         assertEquals(GeckoSafeBrowsing.UNWANTED, SafeBrowsingPolicy.UNWANTED.id)
         assertEquals(GeckoSafeBrowsing.HARMFUL, SafeBrowsingPolicy.HARMFUL.id)
         assertEquals(GeckoSafeBrowsing.PHISHING, SafeBrowsingPolicy.PHISHING.id)
+        assertEquals(GeckoSafeBrowsing.HARMFULADDON, SafeBrowsingPolicy.HARMFULADDON.id)
         assertEquals(GeckoSafeBrowsing.DEFAULT, SafeBrowsingPolicy.RECOMMENDED.id)
     }
 
@@ -1840,7 +1841,6 @@ class GeckoEngineSessionTest {
         assertEquals(
             GeckoCookieBehavior.ACCEPT_FIRST_PARTY,
             CookiePolicy.ACCEPT_ONLY_FIRST_PARTY.id,
-
         )
         assertEquals(GeckoCookieBehavior.ACCEPT_VISITED, CookiePolicy.ACCEPT_VISITED.id)
     }
@@ -2337,6 +2337,10 @@ class GeckoEngineSessionTest {
             GeckoEngineSession.geckoErrorToErrorType(WebRequestError.ERROR_SAFEBROWSING_UNWANTED_URI),
         )
         assertEquals(
+            ErrorType.ERROR_HARMFULADDON_URI,
+            GeckoEngineSession.geckoErrorToErrorType(WebRequestError.ERROR_HARMFULADDON_URI),
+        )
+        assertEquals(
             ErrorType.UNKNOWN,
             GeckoEngineSession.geckoErrorToErrorType(-500),
         )
@@ -2408,7 +2412,18 @@ class GeckoEngineSessionTest {
             altText: String?,
             typeStr: String,
             srcUri: String?,
-        ) : GeckoSession.ContentDelegate.ContextElement(baseUri, linkUri, title, altText, typeStr, srcUri)
+        ) : GeckoSession.ContentDelegate.ContextElement(
+            baseUri,
+            linkUri,
+            title,
+            altText,
+            typeStr,
+            srcUri,
+            // textContent =
+            null,
+            // linkText =
+            null,
+        )
 
         delegate.onContextMenu(
             geckoSession,
@@ -2516,6 +2531,15 @@ class GeckoEngineSessionTest {
 
         result = engineSession.handleLongClick(null, TYPE_NONE, null)
         assertNull(result)
+
+        result = engineSession.handleLongClick(
+            elementSrc = null,
+            elementType = TYPE_NONE,
+            uri = "https://mozilla.org",
+            linkText = "Mozilla",
+        )
+        assertTrue(result is HitResult.UNKNOWN && result.src == "https://mozilla.org")
+        assertTrue(result is HitResult.UNKNOWN && result.linkText == "Mozilla")
     }
 
     @Test
@@ -4384,10 +4408,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4404,6 +4430,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test
@@ -4411,10 +4438,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4431,6 +4460,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test
@@ -4438,10 +4468,12 @@ class GeckoEngineSessionTest {
         val engineSession = GeckoEngineSession(mock(), geckoSessionProvider = geckoSessionProvider)
 
         var observedIssuer: String? = null
+        var observedCertificate: X509Certificate? = null
         engineSession.register(
             object : EngineSession.Observer {
-                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?) {
+                override fun onSecurityChange(secure: Boolean, host: String?, issuer: String?, certificate: X509Certificate?) {
                     observedIssuer = issuer
+                    observedCertificate = certificate
                 }
             },
         )
@@ -4458,6 +4490,7 @@ class GeckoEngineSessionTest {
         val securityInformation = MockSecurityInformation(certificate = certificate)
         progressDelegate.value.onSecurityChange(mock(), securityInformation)
         assertEquals(parsedIssuerName, observedIssuer)
+        assertEquals(certificate, observedCertificate)
     }
 
     @Test

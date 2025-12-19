@@ -106,6 +106,18 @@ export var FxAccountsConfig = {
     });
   },
 
+  async promiseSetPasswordURI(entrypoint, extraParams = {}) {
+    const authParams = await this._getAuthParams();
+    return this._buildURL("post_verify/third_party_auth/set_password", {
+      extraParams: {
+        entrypoint,
+        ...authParams,
+        ...extraParams,
+      },
+      addAccountIdentifiers: true,
+    });
+  },
+
   async promisePairingURI(extraParams = {}) {
     return this._buildURL("pair", {
       extraParams,
@@ -134,7 +146,7 @@ export var FxAccountsConfig = {
   /**
    * @param path should be parsable by the URL constructor first parameter.
    * @param {bool} [options.includeDefaultParams] If true include the default search params.
-   * @param {Object.<string, string>} [options.extraParams] Additionnal search params.
+   * @param {{[key: string]: string}} [options.extraParams] Additionnal search params.
    * @param {bool} [options.addAccountIdentifiers] if true we add the current logged-in user uid and email to the search params.
    */
   async _buildURL(

@@ -22,21 +22,23 @@ import MozInputFolder from "chrome://global/content/elements/moz-input-folder.mj
 /** @import { Setting } from "chrome://global/content/preferences/Setting.mjs" */
 
 /**
- * @typedef {Object} SettingNestedConfig
+ * @typedef {object} SettingNestedConfig
  * @property {SettingControlConfig[]} [items] Additional nested SettingControls to render.
  * @property {SettingOptionConfig[]} [options]
  * Additional nested plain elements to render (may have SettingControls nested within them, though).
  */
 
 /**
- * @typedef {Object} SettingOptionConfigExtensions
+ * @typedef {object} SettingOptionConfigExtensions
  * @property {string} [control]
  * The element tag to render, default assumed based on parent control.
  * @property {any} [value] A value to set on the option.
+ * @property {boolean} [disabled] If the option should be disabled.
+ * @property {boolean} [hidden] If the option should be hidden.
  */
 
 /**
- * @typedef {Object} SettingControlConfigExtensions
+ * @typedef {object} SettingControlConfigExtensions
  * @property {string} id
  * The ID for the Setting, also set in the DOM unless overridden with controlAttrs.id
  * @property {string} [control] The element to render, default to "moz-checkbox".
@@ -106,8 +108,9 @@ export class SettingControl extends SettingElement {
     config: { type: Object },
     value: {},
     parentDisabled: { type: Boolean },
-    showEnableExtensionMessage: { type: Boolean },
     tabIndex: { type: Number, reflect: true },
+    showEnableExtensionMessage: { type: Boolean, state: true },
+    isDisablingExtension: { type: Boolean, state: true },
   };
 
   /**
@@ -144,6 +147,11 @@ export class SettingControl extends SettingElement {
      * @type {boolean}
      */
     this.showEnableExtensionMessage = false;
+
+    /**
+     * @type {boolean}
+     */
+    this.isDisablingExtension = false;
   }
 
   createRenderRoot() {
@@ -206,7 +214,7 @@ export class SettingControl extends SettingElement {
       control.value = this.value;
     }
 
-    control.requestUpdate();
+    control.requestUpdate?.();
   }
 
   /**
@@ -216,7 +224,6 @@ export class SettingControl extends SettingElement {
    *
    * @override
    * @param {SettingElementConfig} config
-   * @returns {ReturnType<SettingElement['getCommonPropertyMapping']>}
    */
   getCommonPropertyMapping(config) {
     return {
@@ -232,11 +239,12 @@ export class SettingControl extends SettingElement {
    * @param {SettingOptionConfig} config
    */
   getOptionPropertyMapping(config) {
-    const props = this.getCommonPropertyMapping(config);
-    props[".value"] = config.value;
-    props[".disabled"] = config.disabled;
-    props[".hidden"] = config.hidden;
-    return props;
+    return {
+      ...this.getCommonPropertyMapping(config),
+      ".value": config.value,
+      ".disabled": config.disabled,
+      ".hidden": config.hidden,
+    };
   }
 
   /**
@@ -245,14 +253,17 @@ export class SettingControl extends SettingElement {
    * @param {SettingControlConfig} config
    */
   getControlPropertyMapping(config) {
-    const props = this.getCommonPropertyMapping(config);
-    props[".parentDisabled"] = this.parentDisabled;
-    props["?disabled"] =
-      this.setting.disabled ||
-      this.setting.locked ||
-      this.isControlledByExtension();
-
-    return props;
+    return {
+      ...this.getCommonPropertyMapping(config),
+      ".parentDisabled": this.parentDisabled,
+      "?disabled":
+        this.setting.disabled ||
+        this.setting.locked ||
+        this.isControlledByExtension(),
+      // Hide moz-message-bar directly to maintain the role=alert functionality.
+      // This setting-control will be visually hidden in CSS.
+      ".hidden": config.control == "moz-message-bar" && this.hidden,
+    };
   }
 
   getValue() {
@@ -301,8 +312,10 @@ export class SettingControl extends SettingElement {
   }
 
   async disableExtension() {
-    await this.setting.disableControllingExtension();
+    this.isDisablingExtension = true;
     this.showEnableExtensionMessage = true;
+    await this.setting.disableControllingExtension();
+    this.isDisablingExtension = false;
   }
 
   isControlledByExtension() {
@@ -325,7 +338,7 @@ export class SettingControl extends SettingElement {
       event.preventDefault();
       // @ts-ignore
       let mainWindow = window.browsingContext.topChromeWindow;
-      mainWindow.BrowserAddonUI.openAddonsMgr("addons://list/theme");
+      mainWindow.BrowserAddonUI.openAddonsMgr("addons://list/extension");
     }
   }
 
@@ -359,7 +372,9 @@ export class SettingControl extends SettingElement {
           .config=${item.config}
           .setting=${item.setting}
           .getSetting=${this.getSetting}
-          slot=${ifDefined(ITEM_SLOT_BY_PARENT.get(control))}
+          slot=${ifDefined(
+            item.config.slot || ITEM_SLOT_BY_PARENT.get(control)
+          )}
         ></setting-control>`
     );
   }
@@ -379,11 +394,16 @@ export class SettingControl extends SettingElement {
       let optionTag = opt.control
         ? unsafeStatic(opt.control)
         : KNOWN_OPTIONS.get(control);
+      let spreadValues = spread(this.getOptionPropertyMapping(opt));
       let children =
         "items" in opt ? this.itemsTemplate(opt) : this.optionsTemplate(opt);
-      return staticHtml`<${optionTag}
-          ${spread(this.getOptionPropertyMapping(opt))}
-        >${children}</${optionTag}>`;
+      if (opt.control == "a" && opt.controlAttrs?.is == "moz-support-link") {
+        // The `is` attribute must be set when the element is first added to the
+        // DOM. We need to mark that up manually, since `spread()` uses
+        // `el.setAttribute()` to set attributes it receives.
+        return html`<a is="moz-support-link" ${spreadValues}>${children}</a>`;
+      }
+      return staticHtml`<${optionTag} ${spreadValues}>${children}</${optionTag}>`;
     });
   }
 
@@ -429,6 +449,7 @@ export class SettingControl extends SettingElement {
         <moz-button
           slot="actions"
           @click=${this.disableExtension}
+          ?disabled=${this.isDisablingExtension}
           data-l10n-id="disable-extension"
         ></moz-button>
       </moz-message-bar>`;

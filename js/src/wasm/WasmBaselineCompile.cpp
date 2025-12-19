@@ -833,6 +833,11 @@ bool BaseCompiler::endFunction() {
 
 void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
   MOZ_ASSERT(!deadCode_);
+
+  // A sync() must happen before this. The debug stub does not save all live
+  // registers.
+  MOZ_ASSERT(!hasLiveRegsOnStk());
+
 #ifndef RABALDR_PIN_INSTANCE
   fr.loadInstancePtr(InstanceReg);
 #endif
@@ -916,9 +921,8 @@ void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
   Label L;
   masm.loadPtr(Address(InstanceReg, Instance::offsetOfDebugStub()), scratch);
   masm.branchPtr(Assembler::Equal, scratch, ImmWord(0), &L);
-  masm.call(&perFunctionDebugStub_);
-  masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind),
-              CodeOffset(masm.currentOffset()));
+  const CodeOffset retAddr = masm.call(&perFunctionDebugStub_);
+  masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind), retAddr);
   masm.bind(&L);
 #else
   MOZ_CRASH("BaseCompiler platform hook: insertBreakablePoint");
@@ -1153,9 +1157,10 @@ class OutOfLineRequestTierUp : public OutOfLineCode {
     }
 #endif
     // Call the stub
-    masm->call(Address(InstanceReg, Instance::offsetOfRequestTierUpStub()));
+    const CodeOffset retAddr =
+        masm->call(Address(InstanceReg, Instance::offsetOfRequestTierUpStub()));
     masm->append(CallSiteDesc(lastOpcodeOffset_, CallSiteKind::RequestTierUp),
-                 CodeOffset(masm->currentOffset()));
+                 retAddr);
     // And swap again, if we swapped above.
 #ifndef RABALDR_PIN_INSTANCE
     if (Register(instance_) != InstanceReg) {
@@ -1199,6 +1204,10 @@ Maybe<CodeOffset> BaseCompiler::addHotnessCheck() {
   // hotness-counting purposes.
 
   AutoCreatedBy acb(masm, "BC::addHotnessCheck");
+
+  // A sync() must happen before this. The request tier-up stub does not save
+  // all live registers.
+  MOZ_ASSERT(!hasLiveRegsOnStk());
 
 #ifdef RABALDR_PIN_INSTANCE
   Register instance(InstanceReg);
@@ -1999,7 +2008,6 @@ void BaseCompiler::popStackResultsAfterWasmCall(const StackResultsLoc& results,
 
 void BaseCompiler::pushBuiltinCallResult(const FunctionCall& call,
                                          MIRType type) {
-  MOZ_ASSERT(call.abiKind == ABIKind::System);
   switch (type) {
     case MIRType::Int32: {
       RegI32 rv = captureReturnedI32();
@@ -3749,8 +3757,9 @@ bool BaseCompiler::jumpConditionalWithResults(BranchState* b, RegRef object,
 
       masm.branchWasmRefIsSubtype(
           object, sourceType, destType, &notTaken,
-          /*onSuccess=*/b->invertBranch ? onSuccess : !onSuccess, regs.superSTV,
-          regs.scratch1, regs.scratch2);
+          /*onSuccess=*/b->invertBranch ? onSuccess : !onSuccess,
+          /*signalNullChecks=*/false, regs.superSTV, regs.scratch1,
+          regs.scratch2);
       freeRegistersForBranchIfRefSubtype(regs);
 
       // Shuffle stack args.
@@ -3764,8 +3773,8 @@ bool BaseCompiler::jumpConditionalWithResults(BranchState* b, RegRef object,
 
   masm.branchWasmRefIsSubtype(
       object, sourceType, destType, b->label,
-      /*onSuccess=*/b->invertBranch ? !onSuccess : onSuccess, regs.superSTV,
-      regs.scratch1, regs.scratch2);
+      /*onSuccess=*/b->invertBranch ? !onSuccess : onSuccess,
+      /*signalNullChecks=*/false, regs.superSTV, regs.scratch1, regs.scratch2);
   freeRegistersForBranchIfRefSubtype(regs);
   return true;
 }
@@ -4048,8 +4057,12 @@ bool BaseCompiler::emitLoop() {
     }
     masm.nopAlign(CodeAlignment);
     masm.bind(&controlItem(0).label);
-    // The interrupt check barfs if there are live registers.
+
+    // The interrupt check barfs if there are live registers. The hotness check
+    // also can call the request tier-up stub, which assumes that no registers
+    // are live.
     sync();
+
     if (!addInterruptCheck()) {
       return false;
     }
@@ -5782,7 +5795,7 @@ bool BaseCompiler::emitUnaryMathBuiltinCall(SymbolicAddress callee,
   uint32_t numArgs = signature.length();
   size_t stackSpace = stackConsumed(numArgs);
 
-  FunctionCall baselineCall(ABIKind::System, RestoreState::None);
+  FunctionCall baselineCall(ABIForBuiltin(callee), RestoreState::None);
   beginCall(baselineCall);
 
   if (!emitCallArgs(signature, NoCallResults(), &baselineCall,
@@ -5827,7 +5840,7 @@ bool BaseCompiler::emitDivOrModI64BuiltinCall(SymbolicAddress callee,
     checkDivideSignedOverflow(rhs, srcDest, &done, ZeroOnOverflow(true));
   }
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
   masm.passABIArg(srcDest.high);
   masm.passABIArg(srcDest.low);
   masm.passABIArg(rhs.high);
@@ -5856,7 +5869,7 @@ bool BaseCompiler::emitConvertInt64ToFloatingCallout(SymbolicAddress callee,
 
   FunctionCall call(ABIKind::Wasm, RestoreState::None);
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
 #  ifdef JS_PUNBOX64
   MOZ_CRASH("BaseCompiler platform hook: emitConvertInt64ToFloatingCallout");
 #  else
@@ -5906,7 +5919,7 @@ bool BaseCompiler::emitConvertFloatingToInt64Callout(SymbolicAddress callee,
 
   FunctionCall call(ABIKind::Wasm, RestoreState::None);
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
   masm.passABIArg(doubleInput, ABIType::Float64);
   CodeOffset raOffset = masm.callWithABI(
       bytecodeOffset(), callee, mozilla::Some(fr.getInstancePtrOffset()));
@@ -6533,7 +6546,8 @@ bool BaseCompiler::emitInstanceCall(const SymbolicAddressSignature& builtin) {
   uint32_t numNonInstanceArgs = builtin.numArgs - 1 /* instance */;
   size_t stackSpace = stackConsumed(numNonInstanceArgs);
 
-  FunctionCall baselineCall(ABIKind::System, RestoreState::PinnedRegs);
+  FunctionCall baselineCall(ABIForBuiltin(builtin.identity),
+                            RestoreState::PinnedRegs);
   beginCall(baselineCall);
 
   ABIArg instanceArg = reservePointerArgument(&baselineCall);
@@ -8943,8 +8957,8 @@ bool BaseCompiler::emitRefTest(bool nullable) {
   BranchIfRefSubtypeRegisters regs =
       allocRegistersForBranchIfRefSubtype(destType);
   masm.branchWasmRefIsSubtype(ref, MaybeRefType(sourceType), destType, &success,
-                              /*onSuccess=*/true, regs.superSTV, regs.scratch1,
-                              regs.scratch2);
+                              /*onSuccess=*/true, /*signalNullChecks=*/false,
+                              regs.superSTV, regs.scratch1, regs.scratch2);
   freeRegistersForBranchIfRefSubtype(regs);
 
   masm.xor32(result, result);
@@ -8973,16 +8987,24 @@ bool BaseCompiler::emitRefCast(bool nullable) {
 
   RegRef ref = popRef();
 
-  Label success;
+  OutOfLineCode* ool = addOutOfLineCode(
+      new (alloc_) OutOfLineAbortingTrap(Trap::BadCast, trapSiteDesc()));
+  if (!ool) {
+    return false;
+  }
+
   BranchIfRefSubtypeRegisters regs =
       allocRegistersForBranchIfRefSubtype(destType);
-  masm.branchWasmRefIsSubtype(ref, MaybeRefType(sourceType), destType, &success,
-                              /*onSuccess=*/true, regs.superSTV, regs.scratch1,
-                              regs.scratch2);
+  FaultingCodeOffset fco = masm.branchWasmRefIsSubtype(
+      ref, MaybeRefType(sourceType), destType, ool->entry(),
+      /*onSuccess=*/false, /*signalNullChecks=*/true, regs.superSTV,
+      regs.scratch1, regs.scratch2);
+  if (fco.isValid()) {
+    masm.append(wasm::Trap::BadCast, wasm::TrapMachineInsnForLoadWord(),
+                fco.get(), trapSiteDesc());
+  }
   freeRegistersForBranchIfRefSubtype(regs);
 
-  trap(Trap::BadCast);
-  masm.bind(&success);
   pushRef(ref);
 
   return true;
@@ -10496,6 +10518,9 @@ bool BaseCompiler::emitBody() {
           // TODO sync only registers that can be clobbered by the exit
           // prologue/epilogue or disable these registers for use in
           // baseline compiler when compilerEnv_.debugEnabled() is set.
+          //
+          // This will require the debug stub to save/restore allocatable
+          // registers.
           sync();
 
           insertBreakablePoint(CallSiteKind::Breakpoint);

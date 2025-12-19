@@ -6,8 +6,14 @@ package org.mozilla.fenix.settings
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.View.GONE
+import android.view.View.VISIBLE
+import android.widget.ImageView
+import androidx.preference.PreferenceViewHolder
 import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.settings
+
+const val EXPANDED_TOOLBAR_TYPE = "expanded"
 
 internal class ToolbarExpandedShortcutPreference @JvmOverloads constructor(
     context: Context,
@@ -22,5 +28,15 @@ internal class ToolbarExpandedShortcutPreference @JvmOverloads constructor(
         context.settings().toolbarExpandedShortcutKey = key
     }
 
-    override fun toolbarShortcutPreview(): Int = R.drawable.ic_toolbar_expanded_shortcut_preview
+    override fun getToolbarType(): String = EXPANDED_TOOLBAR_TYPE
+
+    override fun getSelectedIconImageView(holder: PreferenceViewHolder): ImageView {
+        val simplePreview = holder.findViewById(R.id.toolbar_simple_shortcut_preview)
+        val expandedPreview = holder.findViewById(R.id.toolbar_expanded_shortcut_preview)
+
+        simplePreview.visibility = GONE
+        expandedPreview.visibility = VISIBLE
+
+        return expandedPreview.findViewById(R.id.selected_expanded_shortcut_icon)
+    }
 }

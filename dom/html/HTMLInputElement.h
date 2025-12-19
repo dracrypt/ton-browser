@@ -778,13 +778,17 @@ class HTMLInputElement final : public TextControlElement,
   Element* GetDateTimeBoxElement();
 
   /*
-   * The following functions are called from datetime input box XBL to control
+   * The following functions are called from the datetimebox element to control
    * and update the picker.
    */
   void OpenDateTimePicker(const DateTimeValue& aInitialValue);
-  void UpdateDateTimePicker(const DateTimeValue& aValue);
   void CloseDateTimePicker();
-  void SetDateTimePickerState(bool aIsOpen);
+
+  /**
+   * Sets open state for the input element, depending on whether the picker is
+   * open or closed.
+   */
+  void SetOpenState(bool aIsOpen);
 
   /*
    * Called from datetime input box binding when inner text fields are focused
@@ -1328,11 +1332,6 @@ class HTMLInputElement final : public TextControlElement,
    * @param aStep The value used to be multiplied against the step value.
    */
   void ApplyStep(int32_t aStep, ErrorResult&);
-
-  /**
-   * Returns if the current type is an experimental mobile type.
-   */
-  static bool IsExperimentalMobileType(FormControlType);
 
   /*
    * Returns if the current type is one of the date/time input types: date,

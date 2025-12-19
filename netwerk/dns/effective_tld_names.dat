@@ -5,8 +5,8 @@
 // Please pull this list from, and only from https://publicsuffix.org/list/public_suffix_list.dat,
 // rather than any other VCS sites. Pulling from any other URL is not guaranteed to be supported.
 
-// VERSION: 2025-11-14_10-08-11_UTC
-// COMMIT: 64ba165cf391818a086139239c8fa223264eebcc
+// VERSION: 2025-12-18_00-40-39_UTC
+// COMMIT: 44bf7aac6858882e64ac20440367fac80486a7ce
 
 // Instructions on pulling and using this list can be found at https://publicsuffix.org/list/.
 
@@ -1301,6 +1301,12 @@ gov.gy
 net.gy
 org.gy
 
+// Hercules : https://hercules.app
+// Submitted by Brendan Falk <security@hercules.app>
+onhercules.app
+hercules-app.com
+hercules-dev.com
+
 // hk : https://www.hkirc.hk
 // Submitted by registry <hk.tech@hkirc.hk>
 hk
@@ -1415,6 +1421,8 @@ or.id
 ponpes.id
 sch.id
 web.id
+// xn--9tfky.id (<bali>.id, Und-Bali)
+ᬩᬮᬶ.id
 
 // ie : https://www.iana.org/domains/root/db/ie.html
 ie
@@ -6814,7 +6822,7 @@ org.zw
 
 // newGTLDs
 
-// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2025-11-08T15:16:38Z
+// List of new gTLDs imported from https://www.icann.org/resources/registries/gtlds/v2/gtlds.json on 2025-12-06T15:17:27Z
 // This list is auto-generated, don't edit it manually.
 // aaa : American Automobile Association, Inc.
 // https://www.iana.org/domains/root/db/aaa.html
@@ -10192,7 +10200,7 @@ solutions
 // https://www.iana.org/domains/root/db/song.html
 song
 
-// sony : Sony Corporation
+// sony : Sony Group Corporation
 // https://www.iana.org/domains/root/db/sony.html
 sony
 
@@ -11329,6 +11337,10 @@ adobeioruntime.net
 // Africa.com Web Solutions Ltd : https://registry.africa.com
 // Submitted by Gavin Brown <gavin.brown@centralnic.com>
 africa.com
+
+// AgentbaseAI Inc. : https://assistant-ui.com
+// Submitted by Simon Farshid <security@assistant-ui.com>
+*.auiusercontent.com
 
 // Agnat sp. z o.o. : https://domena.pl
 // Submitted by Przemyslaw Plewa <it-admin@domena.pl>
@@ -12500,6 +12512,8 @@ square7.net
 // Submitted by Andrea Brancaleoni <abrancaleoni@brave.com>
 brave.app
 *.s.brave.app
+brave.dev
+*.s.brave.dev
 brave.io
 *.s.brave.io
 
@@ -12728,8 +12742,9 @@ co.no
 *.devinapps.com
 
 // Combell.com : https://www.combell.com
-// Submitted by Thomas Wouters <thomas.wouters@combellgroup.com>
+// Submitted by Combell Team <support@combell.com>
 webhosting.be
+prvw.eu
 hosting-cluster.nl
 
 // Contentful GmbH : https://www.contentful.com
@@ -12907,8 +12922,11 @@ discordsez.com
 // Submitted by Calvin Browne <calvin@dns.business>
 jozi.biz
 
-// DNSHE : https://de5.net
+// DNSHE : https://www.dnshe.com
 // Submitted by DNSHE Team <support@dnshe.com>
+ccwu.cc
+cc.cd
+us.ci
 de5.net
 
 // DNShome : https://www.dnshome.de/
@@ -12919,6 +12937,12 @@ dnshome.de
 // Submitted by Atsadawat Netcharadsang <atsadawat@dotarai.co.th>
 online.th
 shop.th
+
+// dotScot Domains : https://domains.scot/
+// Submitted by DNS Team <dns@domains.scot>
+co.scot
+me.scot
+org.scot
 
 // DrayTek Corp. : https://www.draytek.com/
 // Submitted by Paul Fang <mis@draytek.com>
@@ -13286,11 +13310,8 @@ elementor.cool
 // Emergent : https://emergent.sh
 // Submitted by Emergent Security Team <security@emergent.sh>
 emergent.cloud
+preview.emergentagent.com
 emergent.host
-
-// En root‽ : https://en-root.org
-// Submitted by Emmanuel Raviart <emmanuel@raviart.com>
-en-root.fr
 
 // Enalean SAS : https://www.enalean.com
 // Submitted by Enalean Security Team <security@enalean.com>
@@ -13552,10 +13573,9 @@ on-fleek.app
 flutterflow.app
 
 // fly.io : https://fly.io
-// Submitted by Kurt Mackey <kurt@fly.io>
+// Submitted by Kurt Mackey <ops@fly.io>
+sprites.app
 fly.dev
-shw.io
-edgeapp.net
 
 // Forgerock : https://www.forgerock.com
 // Submitted by Roderick Parr <roderick.parr@forgerock.com>
@@ -13633,6 +13653,11 @@ futuremailing.at
 *.ex.ortsinfo.at
 *.kunden.ortsinfo.at
 *.statics.cloud
+
+// Gadget Software Inc. : https://gadget.dev
+// Submitted by Harry Brundage <security@gadget.dev>
+gadget.app
+gadget.host
 
 // GCom Internet : https://www.gcom.net.au
 // Submitted by Leo Julius <support@gcom.net.au>
@@ -13858,6 +13883,10 @@ grafana-dev.net
 // GrayJay Web Solutions Inc. : https://grayjaysports.ca
 // Submitted by Matt Yamkowy <info@grayjaysports.ca>
 grayjayleagues.com
+
+// Grebedoc : https://grebedoc.dev
+// Submitted by Catherine Zotova <admin@grebedoc.dev>
+grebedoc.dev
 
 // GünstigBestellen : https://günstigbestellen.de
 // Submitted by Furkan Akkoc <info@hendelzon.de>
@@ -14437,6 +14466,11 @@ luyani.net
 // Submitted by Damien Tournoud <dtournoud@magento.cloud>
 *.magentosite.cloud
 
+// Magic Patterns : https://www.magicpatterns.com
+// Submitted by Teddy Ni <security@magicpatterns.com>
+magicpatterns.app
+magicpatternsapp.com
+
 // Mail.Ru Group : https://hb.cldmail.ru
 // Submitted by Ilya Zaretskiy <zaretskiy@corp.mail.ru>
 hb.cldmail.ru
@@ -14531,8 +14565,12 @@ westus2.azurestaticapps.net
 azurewebsites.net
 cloudapp.net
 trafficmanager.net
+servicebus.usgovcloudapi.net
+usgovcloudapp.net
 blob.core.windows.net
 servicebus.windows.net
+azure-api.us
+azurewebsites.us
 
 // MikroTik : https://mikrotik.com
 // Submitted by MikroTik SysAdmin Team <support@mikrotik.com>
@@ -14806,10 +14844,6 @@ nyc.mn
 // Submitted by the prvcy.page Registry Team <info@o3o.foundation>
 prvcy.page
 
-// Obl.ong : https://obl.ong
-// Submitted by Reese Armstrong <team@obl.ong>
-obl.ong
-
 // Observable, Inc. : https://observablehq.com
 // Submitted by Mike Bostock <dns@observablehq.com>
 observablehq.cloud
@@ -14966,10 +15000,6 @@ srv.us
 gh.srv.us
 gl.srv.us
 
-// PE Ulyanov Kirill Sergeevich : https://airy.host
-// Submitted by Kirill Ulyanov <k.ulyanov@airy.host>
-lk3.ru
-
 // Peplink | Pepwave : http://peplink.com/
 // Submitted by Steve Leung <steveleung@peplink.com>
 mypep.link
@@ -14995,11 +15025,6 @@ eu.platform.sh
 us.platform.sh
 *.platformsh.site
 *.tst.site
-
-// Platter : https://platter.dev
-// Submitted by Patrick Flor <patrick@platter.dev>
-platter-app.dev
-platterp.us
 
 // Pley AB : https://www.pley.com/
 // Submitted by Henning Pohl <infra@pley.com>
@@ -15047,6 +15072,10 @@ dev.project-study.com
 // Protonet GmbH : http://protonet.io
 // Submitted by Martin Meier <admin@protonet.io>
 protonet.io
+
+// PSL Sandbox : https://github.com/groundcat/PSL-Sandbox
+// Submitted by groundcat <psl-sandbox@alumni.upenn.edu>
+platter-app.dev
 
 // PT Ekossistim Indo Digital : https://e.id
 // Submitted by Eid Team <support@corp.e.id>
@@ -15161,6 +15190,11 @@ rhcloud.com
 // Redgate Software : https://red-gate.com
 // Submitted by Andrew Farries <andrew.farries@red-gate.com>
 instances.spawn.cc
+
+// Redpanda Data : https://redpanda.com
+// Submitted by Infrastructure Team <security@redpanda.com>
+*.clusters.rdpa.co
+*.srvrless.rdpa.co
 
 // Render : https://render.com
 // Submitted by Anurag Goel <dev@render.com>
@@ -15334,6 +15368,10 @@ sakura.tv
 // Sandstorm Development Group, Inc. : https://sandcats.io/
 // Submitted by Asheesh Laroia <asheesh@sandstorm.io>
 sandcats.io
+
+// Sav.com, LLC : https://marketing.sav.com/
+// Submitted by Mukul Kudegave <mukul@sav.com>
+sav.case
 
 // SBE network solutions GmbH : https://www.sbe.de/
 // Submitted by Norman Meilick <nm@sbe.de>
@@ -15627,10 +15665,6 @@ ipfs.w3s.link
 // Storebase : https://www.storebase.io
 // Submitted by Tony Schirmer <tony@storebase.io>
 storebase.store
-
-// Storipress : https://storipress.com
-// Submitted by Benno Liu <benno@storipress.com>
-storipress.app
 
 // Storj Labs Inc. : https://storj.io/
 // Submitted by Philip Hutchins <hostmaster@storj.io>
@@ -16016,8 +16050,6 @@ wmflabs.org
 
 // William Harrison : https://wharrison.com.au
 // Submitted by William Harrison <security@hrsn.net>
-wdh.app
-hrsn.au
 vps.hrsn.au
 hrsn.dev
 is-a.dev
@@ -16082,6 +16114,10 @@ u2-local.xnbay.com
 cistron.nl
 demon.nl
 xs4all.space
+
+// xTool : https://xtool.com
+// Submitted by Echo <admin@xtool.com>
+xtooldevice.com
 
 // Yandex.Cloud LLC : https://cloud.yandex.com
 // Submitted by Alexander Lodin <security+psl@yandex-team.ru>

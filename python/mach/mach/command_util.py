@@ -87,6 +87,9 @@ MACH_COMMANDS = {
     ),
     "configure": MachCommandReference("python/mozbuild/mozbuild/build_commands.py"),
     "cppunittest": MachCommandReference("testing/mach_commands.py"),
+    "crash-ping-metrics": MachCommandReference(
+        "toolkit/crashreporter/crashping/glean_metrics.py"
+    ),
     "crashtest": MachCommandReference("layout/tools/reftest/mach_commands.py"),
     "data-review": MachCommandReference(
         "toolkit/components/glean/build_scripts/mach_commands.py"
@@ -153,7 +156,7 @@ MACH_COMMANDS = {
         "python/mach/mach/commands/commandinfo.py"
     ),
     "macos-sign": MachCommandReference("tools/signing/macos/mach_commands.py"),
-    "manifest": MachCommandReference("testing/mach_commands.py"),
+    "manifest": MachCommandReference("testing/manifest/mach_commands.py"),
     "platform-diff": MachCommandReference("testing/mach_commands.py"),
     "marionette-test": MachCommandReference("testing/marionette/mach_commands.py"),
     "mochitest": MachCommandReference("testing/mochitest/mach_commands.py", ["test"]),

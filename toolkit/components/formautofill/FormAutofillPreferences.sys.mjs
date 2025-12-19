@@ -8,6 +8,7 @@
 
 const MANAGE_ADDRESSES_URL =
   "chrome://formautofill/content/manageAddresses.xhtml";
+const EDIT_ADDRESS_URL = "chrome://formautofill/content/editAddress.xhtml";
 const MANAGE_CREDITCARDS_URL =
   "chrome://formautofill/content/manageCreditCards.xhtml";
 const EDIT_CREDIT_CARD_URL =
@@ -20,6 +21,7 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
   formAutofillStorage: "resource://autofill/FormAutofillStorage.sys.mjs",
+  ManageAddresses: "chrome://formautofill/content/manageDialog.mjs",
 });
 
 ChromeUtils.defineLazyGetter(
@@ -89,14 +91,6 @@ export class FormAutofillPreferences {
    */
   init(document) {
     this.createPreferenceGroup(document);
-    return this.refs.formAutofillFragment;
-  }
-
-  /**
-   * Remove event listeners and the preference group.
-   */
-  uninit() {
-    this.refs.formAutofillGroup.remove();
   }
 
   /**
@@ -106,18 +100,6 @@ export class FormAutofillPreferences {
    */
   createPreferenceGroup(document) {
     const win = document.ownerGlobal;
-    this.refs = {};
-    this.refs.formAutofillGroup = document.querySelector(
-      "#formAutofillGroupBox"
-    );
-
-    let showAddressUI = FormAutofill.isAutofillAddressesAvailable;
-    let showCreditCardUI = FormAutofill.isAutofillCreditCardsAvailable;
-
-    if (!showAddressUI && !showCreditCardUI) {
-      return;
-    }
-
     win.Preferences.addAll([
       // Credit cards and addresses
       { id: ENABLED_AUTOFILL_ADDRESSES_PREF, type: "bool" },
@@ -137,8 +119,13 @@ export class FormAutofillPreferences {
       id: "savedAddressesButton",
       pref: null,
       visible: () => FormAutofill.isAutofillAddressesAvailable,
-      onUserClick: ({ target }) => {
-        target.ownerGlobal.gSubDialog.open(MANAGE_ADDRESSES_URL);
+      onUserClick: e => {
+        e.preventDefault();
+        if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
+          e.target.ownerGlobal.gotoPref("paneManageAddresses");
+        } else {
+          e.target.ownerGlobal.gSubDialog.open(MANAGE_ADDRESSES_URL);
+        }
       },
     });
 
@@ -197,6 +184,10 @@ export class FormAutofillPreferences {
     await lazy.formAutofillStorage.initialize();
   }
 
+  async initializeAddressesStorage() {
+    await lazy.formAutofillStorage.initialize();
+  }
+
   async trySetOSAuthEnabled(win, checked) {
     let messageText = await lazy.l10n.formatValueSync(
       "autofill-creditcard-os-dialog-message"
@@ -237,21 +228,90 @@ export class FormAutofillPreferences {
       return [];
     }
 
-    const items = records.map(record => {
-      const config = {
-        id: "payment-item",
+    const items = records
+      .sort(record => record.timeCreated)
+      .map(record => {
+        const config = {
+          id: "payment-item",
+          control: "moz-box-item",
+          l10nId: "payment-moz-box-item",
+          iconSrc: "chrome://formautofill/content/icon-credit-card-generic.svg",
+          l10nArgs: {
+            cardNumber: record["cc-number"].replace(/^(\*+)(\d+)$/, "$1 $2"),
+            expDate: record["cc-exp"].replace(/^(\d{4})-\d{2}$/, "XX/$1"),
+          },
+          options: [
+            {
+              control: "moz-button",
+              iconSrc: "chrome://global/skin/icons/delete.svg",
+              type: "icon",
+              controlAttrs: {
+                slot: "actions",
+                action: "remove",
+                guid: record.guid,
+              },
+            },
+            {
+              control: "moz-button",
+              iconSrc: "chrome://global/skin/icons/edit.svg",
+              type: "icon",
+              controlAttrs: {
+                slot: "actions",
+                action: "edit",
+                guid: record.guid,
+              },
+            },
+          ],
+        };
+
+        return config;
+      });
+
+    return [
+      {
+        id: "payments-list-header",
         control: "moz-box-item",
-        l10nId: "payment-moz-box-item",
-        iconSrc: "chrome://formautofill/content/icon-credit-card-generic.svg",
+        l10nId: "payments-list-header",
+        slot: "header",
+      },
+      ...items,
+    ];
+  }
+
+  async makeAddressesListItems() {
+    const addresses = await lazy.formAutofillStorage.addresses.getAll();
+    const records = addresses.slice().reverse();
+
+    if (!records.length) {
+      return [];
+    }
+
+    const items = records.map(record => {
+      const addressFormatted = [
+        record["street-address"],
+        record["address-level2"],
+        record["address-level1"],
+        record.country,
+        record["postal-code"],
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      const config = {
+        id: "address-item",
+        control: "moz-box-item",
+        l10nId: "address-moz-box-item",
+        iconSrc: "chrome://browser/skin/notification-icons/geo.svg",
         l10nArgs: {
-          cardNumber: record["cc-number"].replace(/^(\*+)(\d+)$/, "$2$1"),
-          expDate: record["cc-exp"].replace(/^(\d{4})-\d{2}$/, "XX/$1"),
+          name: `${record.name}`,
+          address: addressFormatted,
         },
         options: [
           {
             control: "moz-button",
             iconSrc: "chrome://global/skin/icons/delete.svg",
             type: "icon",
+            l10nId: "addreses-delete-address-button-label",
             controlAttrs: {
               slot: "actions",
               action: "remove",
@@ -262,6 +322,7 @@ export class FormAutofillPreferences {
             control: "moz-button",
             iconSrc: "chrome://global/skin/icons/edit.svg",
             type: "icon",
+            l10nId: "addreses-edit-address-button-label",
             controlAttrs: {
               slot: "actions",
               action: "edit",
@@ -276,9 +337,10 @@ export class FormAutofillPreferences {
 
     return [
       {
-        id: "payments-list-header",
+        id: "addresses-list-header",
         control: "moz-box-item",
-        l10nId: "payments-list-item-label",
+        l10nId: "addresses-list-header",
+        slot: "header",
       },
       ...items,
     ];
@@ -405,5 +467,69 @@ export class FormAutofillPreferences {
         record: decryptedCreditCard,
       }
     );
+  }
+  /**
+   * Open the browser window modal to prompt the user whether
+   * or they want to remove their address.
+   *
+   * @param  {string} guid
+   *          The guid of the address item we are prompting to remove.
+   * @param  {object} browsingContext
+   *          Browsing context to open the prompt in
+   * @param  {string} title
+   *          The title text displayed in the modal to prompt the user with
+   * @param  {string} confirmBtn
+   *        The text for confirming the removal of an address
+   * @param  {string} cancelBtn
+   *        The text for cancelling removal of an address
+   */
+  async openRemoveAddressDialog(
+    guid,
+    browsingContext,
+    title,
+    confirmBtn,
+    cancelBtn
+  ) {
+    const flags =
+      Services.prompt.BUTTON_TITLE_IS_STRING * Services.prompt.BUTTON_POS_0 +
+      Services.prompt.BUTTON_TITLE_CANCEL * Services.prompt.BUTTON_POS_1;
+    const result = await Services.prompt.asyncConfirmEx(
+      browsingContext,
+      Services.prompt.MODAL_TYPE_INTERNAL_WINDOW,
+      title,
+      null,
+      flags,
+      confirmBtn,
+      cancelBtn,
+      null,
+      null,
+      false
+    );
+
+    const propBag = result.QueryInterface(Ci.nsIPropertyBag2);
+    // Confirmed
+    if (propBag.get("buttonNumClicked") === 0) {
+      lazy.formAutofillStorage.addresses.remove(guid);
+    }
+  }
+
+  async openEditAddressDialog(guid, window) {
+    const address = await lazy.formAutofillStorage.addresses.get(guid);
+    return FormAutofillPreferences.openEditAddressDialog(address, window);
+  }
+  /**
+   * Open the edit address dialog to create/edit an address.
+   *
+   * @param  {object} address
+   *         The address we want to edit.
+   */
+  static async openEditAddressDialog(address, window) {
+    window.gSubDialog.open(EDIT_ADDRESS_URL, undefined, {
+      record: address ?? undefined,
+      // Don't validate in preferences since it's fine for fields to be missing
+      // for autofill purposes. For PaymentRequest addresses get more validation.
+      noValidate: true,
+      l10nStrings: lazy.ManageAddresses.getAddressL10nStrings(),
+    });
   }
 }

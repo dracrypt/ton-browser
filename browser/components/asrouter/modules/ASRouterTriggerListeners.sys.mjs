@@ -47,7 +47,11 @@ function isPrivateWindow(win) {
  *
  * @returns {object} - {host, url} pair that matched the list of allowed hosts
  */
-function checkURLMatch(aLocationURI, { hosts, matchPatternSet }, aRequest) {
+function checkURLMatch(
+  aLocationURI,
+  { hosts, matchPatternSet, regexPatterns },
+  aRequest
+) {
   // If checks pass we return a match
   let match;
   try {
@@ -68,6 +72,15 @@ function checkURLMatch(aLocationURI, { hosts, matchPatternSet }, aRequest) {
     }
   }
 
+  // Check against regex patterns
+  if (regexPatterns) {
+    for (const regex of regexPatterns) {
+      if (regex.test(match.url)) {
+        return match;
+      }
+    }
+  }
+
   // Nothing else to check, return early
   if (!aRequest) {
     return false;
@@ -77,12 +90,23 @@ function checkURLMatch(aLocationURI, { hosts, matchPatternSet }, aRequest) {
   const originalLocation = aRequest.QueryInterface(Ci.nsIChannel).originalURI;
   // We have been redirected
   if (originalLocation.spec !== aLocationURI.spec) {
-    return (
-      hosts.has(originalLocation.host) && {
+    if (hosts.has(originalLocation.host)) {
+      return {
         host: originalLocation.host,
         url: originalLocation.spec,
+      };
+    }
+
+    if (regexPatterns) {
+      for (const regex of regexPatterns) {
+        if (regex.test(originalLocation.spec)) {
+          return {
+            host: originalLocation.host,
+            url: originalLocation.spec,
+          };
+        }
       }
-    );
+    }
   }
 
   return false;
@@ -115,7 +139,6 @@ export const ASRouterTriggerListeners = new Map([
         "datareporting.healthreport.uploadEnabled",
         "datareporting.usage.uploadEnabled",
         "datareporting.policy.dataSubmissionEnabled",
-        "browser.urlbar.quicksuggest.dataCollection.enabled",
         "app.shield.optoutstudies.enabled",
         "browser.crashReports.unsubmittedCheck.autoSubmit2",
         "browser.discovery.enabled",
@@ -191,8 +214,9 @@ export const ASRouterTriggerListeners = new Map([
       _hosts: new Set(),
       _matchPatternSet: null,
       readerModeEvent: "Reader:UpdateReaderButton",
+      _regexPatterns: null,
 
-      init(triggerHandler, hosts, patterns) {
+      init(triggerHandler, hosts, patterns, regexPatterns) {
         if (!this._initialized) {
           this.receiveMessage = this.receiveMessage.bind(this);
           lazy.AboutReaderParent.addMessageListener(this.readerModeEvent, this);
@@ -208,6 +232,13 @@ export const ASRouterTriggerListeners = new Map([
         if (hosts) {
           hosts.forEach(h => this._hosts.add(h));
         }
+
+        if (regexPatterns) {
+          this._regexPatterns = [
+            ...(this._regexPatterns || []),
+            ...regexPatterns.map(pattern => new RegExp(pattern)),
+          ];
+        }
       },
 
       receiveMessage({ data, target }) {
@@ -215,6 +246,7 @@ export const ASRouterTriggerListeners = new Map([
           const match = checkURLMatch(target.currentURI, {
             hosts: this._hosts,
             matchPatternSet: this._matchPatternSet,
+            regexPatterns: this._regexPatterns,
           });
           if (match) {
             this._triggerHandler(target, { id: this.id, param: match });
@@ -232,6 +264,7 @@ export const ASRouterTriggerListeners = new Map([
           this._triggerHandler = null;
           this._hosts = new Set();
           this._matchPatternSet = null;
+          this._regexPatterns = null;
         }
       },
     },
@@ -283,8 +316,9 @@ export const ASRouterTriggerListeners = new Map([
       _hosts: null,
       _matchPatternSet: null,
       _visits: null,
+      regexPatterns: null,
 
-      init(triggerHandler, hosts = [], patterns) {
+      init(triggerHandler, hosts = [], patterns, regexPatterns) {
         if (!this._initialized) {
           this.onTabSwitch = this.onTabSwitch.bind(this);
           lazy.EveryWindow.registerCallback(
@@ -316,6 +350,13 @@ export const ASRouterTriggerListeners = new Map([
           hosts.forEach(h => this._hosts.add(h));
         } else {
           this._hosts = new Set(hosts); // Clone the hosts to avoid unexpected behaviour
+        }
+
+        if (regexPatterns) {
+          this._regexPatterns = [
+            ...(this._regexPatterns || []),
+            ...regexPatterns.map(pattern => new RegExp(pattern)),
+          ];
         }
       },
 
@@ -350,6 +391,7 @@ export const ASRouterTriggerListeners = new Map([
         const match = checkURLMatch(gBrowser.currentURI, {
           hosts: this._hosts,
           matchPatternSet: this._matchPatternSet,
+          regexPatterns: this._regexPatterns,
         });
         if (match) {
           this.triggerHandler(gBrowser.selectedBrowser, match);
@@ -388,7 +430,11 @@ export const ASRouterTriggerListeners = new Map([
         if (aWebProgress.isTopLevel && !isSameDocument) {
           const match = checkURLMatch(
             aLocationURI,
-            { hosts: this._hosts, matchPatternSet: this._matchPatternSet },
+            {
+              hosts: this._hosts,
+              matchPatternSet: this._matchPatternSet,
+              regexPatterns: this._regexPatterns,
+            },
             aRequest
           );
           if (match) {
@@ -406,6 +452,7 @@ export const ASRouterTriggerListeners = new Map([
           this._hosts = null;
           this._matchPatternSet = null;
           this._visits = null;
+          this._regexPatterns = null;
         }
       },
     },
@@ -425,12 +472,13 @@ export const ASRouterTriggerListeners = new Map([
       _hosts: null,
       _matchPatternSet: null,
       _visits: null,
+      _regexPatterns: null,
 
       /*
        * If the listener is already initialised, `init` will replace the trigger
        * handler and add any new hosts to `this._hosts`.
        */
-      init(triggerHandler, hosts = [], patterns) {
+      init(triggerHandler, hosts = [], patterns, regexPatterns) {
         if (!this._initialized) {
           this.onLocationChange = this.onLocationChange.bind(this);
           lazy.EveryWindow.registerCallback(
@@ -462,6 +510,13 @@ export const ASRouterTriggerListeners = new Map([
         } else {
           this._hosts = new Set(hosts); // Clone the hosts to avoid unexpected behaviour
         }
+
+        if (regexPatterns) {
+          this._regexPatterns = [
+            ...(this._regexPatterns || []),
+            ...regexPatterns.map(pattern => new RegExp(pattern)),
+          ];
+        }
       },
 
       uninit() {
@@ -473,6 +528,7 @@ export const ASRouterTriggerListeners = new Map([
           this._hosts = null;
           this._matchPatternSet = null;
           this._visits = null;
+          this._regexPatterns = null;
         }
       },
 
@@ -486,7 +542,11 @@ export const ASRouterTriggerListeners = new Map([
         if (aWebProgress.isTopLevel && !isSameDocument) {
           const match = checkURLMatch(
             aLocationURI,
-            { hosts: this._hosts, matchPatternSet: this._matchPatternSet },
+            {
+              hosts: this._hosts,
+              matchPatternSet: this._matchPatternSet,
+              regexPatterns: this._regexPatterns,
+            },
             aRequest
           );
           if (match) {

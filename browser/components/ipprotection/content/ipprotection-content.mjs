@@ -10,8 +10,6 @@ import {
 } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 // eslint-disable-next-line import/no-unassigned-import
-import "chrome://browser/content/ipprotection/ipprotection-header.mjs";
-// eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/ipprotection/ipprotection-message-bar.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/ipprotection/ipprotection-signedout.mjs";
@@ -25,7 +23,6 @@ import "chrome://global/content/elements/moz-toggle.mjs";
  */
 export default class IPProtectionContentElement extends MozLitElement {
   static queries = {
-    headerEl: "ipprotection-header",
     signedOutEl: "ipprotection-signedout",
     messagebarEl: "ipprotection-message-bar",
     statusCardEl: "ipprotection-status-card",
@@ -147,16 +144,18 @@ export default class IPProtectionContentElement extends MozLitElement {
   #keyListener(event) {
     let keyCode = event.code;
     switch (keyCode) {
+      case "Tab":
       case "ArrowUp":
       // Intentional fall-through
       case "ArrowDown": {
         event.stopPropagation();
         event.preventDefault();
 
-        let direction =
-          keyCode == "ArrowDown"
-            ? Services.focus.MOVEFOCUS_FORWARD
-            : Services.focus.MOVEFOCUS_BACKWARD;
+        let isForward =
+          (keyCode == "Tab" && !event.shiftKey) || keyCode == "ArrowDown";
+        let direction = isForward
+          ? Services.focus.MOVEFOCUS_FORWARD
+          : Services.focus.MOVEFOCUS_BACKWARD;
         Services.focus.moveFocus(
           window,
           null,
@@ -189,6 +188,7 @@ export default class IPProtectionContentElement extends MozLitElement {
       this._showMessageBar = false;
       this._messageDismissed = true;
       this.state.error = "";
+      this.state.bandwidthWarning = false;
     }
   }
 
@@ -205,11 +205,17 @@ export default class IPProtectionContentElement extends MozLitElement {
     let messageId;
     let messageLink;
     let messageLinkl10nId;
+    let messageType = "info";
     // If there are errors, the error message should take precedence
     if (this.#hasErrors) {
       messageId = "ipprotection-message-generic-error";
+      messageType = ERRORS.GENERIC;
+    } else if (this.state.bandwidthWarning) {
+      messageId = "ipprotection-message-bandwidth-warning";
+      messageType = "warning";
     } else if (this.state.onboardingMessage) {
       messageId = this.state.onboardingMessage;
+      messageType = "info";
 
       switch (this.state.onboardingMessage) {
         case "ipprotection-message-continuous-onboarding-intro":
@@ -228,7 +234,7 @@ export default class IPProtectionContentElement extends MozLitElement {
     return html`
       <ipprotection-message-bar
         class="vpn-top-content"
-        type=${this.#hasErrors ? ERRORS.GENERIC : "info"}
+        type=${messageType}
         .messageId=${ifDefined(messageId)}
         .messageLink=${ifDefined(messageLink)}
         .messageLinkl10nId=${ifDefined(messageLinkl10nId)}
@@ -293,7 +299,9 @@ export default class IPProtectionContentElement extends MozLitElement {
 
   render() {
     if (
-      (this.#hasErrors || this.state.onboardingMessage) &&
+      (this.#hasErrors ||
+        this.state.onboardingMessage ||
+        this.state.bandwidthWarning) &&
       !this._messageDismissed
     ) {
       this._showMessageBar = true;
@@ -309,8 +317,6 @@ export default class IPProtectionContentElement extends MozLitElement {
         rel="stylesheet"
         href="chrome://browser/content/ipprotection/ipprotection-content.css"
       />
-      <ipprotection-header titleId="ipprotection-title"></ipprotection-header>
-      <hr />
       <div id="ipprotection-content-wrapper">${content}</div>
     `;
   }

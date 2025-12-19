@@ -11,7 +11,7 @@
                      wrap="true"
                      hidden="true"/>
 
-      <toolbaritem id="appMenu-fxa-menu-message"
+      <toolbaritem id="appMenu-menu-message"
                    closemenu="none">
       </toolbaritem>
       <toolbaritem id="appMenu-fxa-status2"
@@ -49,6 +49,14 @@
                      data-l10n-id="appmenuitem-new-window"
                      key="key_newNavigator"
                      command="cmd_newNavigator"/>
+      <toolbarbutton id="appMenu-new-ai-window-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-new-ai-window"
+                     command="Tools:AIWindow"/>
+      <toolbarbutton id="appMenu-new-classic-window-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-new-classic-window"
+                     command="Tools:ClassicWindow"/>
       <toolbarbutton id="appMenu-new-private-window-button2"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-new-private-window"
@@ -822,6 +830,19 @@
              class="PanelUI-subView"
              mainview-with-header="true"
              has-custom-header="true">
+    <hbox id="PanelUI-ipprotection-header"
+         class="panel-header panel-header-with-info-button">
+        <html:h1>
+          <html:span id="ipprotection-header-content"
+                     data-l10n-id="ipprotection-title"></html:span>
+          <html:moz-badge
+            id="ipprotection-experiment-badge"
+            data-l10n-id="ipprotection-experiment-badge"
+          ></html:moz-badge>
+        </html:h1>
+    </hbox>
+    <toolbarseparator/>
+    <vbox id="PanelUI-ipprotection-content" class="panel-subview-body"/>
   </panelview>
 
   <panelview id="PanelUI-ipprotection-site-settings"

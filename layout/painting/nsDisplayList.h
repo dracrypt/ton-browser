@@ -185,26 +185,42 @@ LazyLogModule& GetLoggerByProcess();
  */
 struct ActiveScrolledRoot {
   // TODO: Just have one function with an extra ASRKind parameter
-  static already_AddRefed<ActiveScrolledRoot> CreateASRForFrame(
+  static already_AddRefed<ActiveScrolledRoot> GetOrCreateASRForFrame(
       const ActiveScrolledRoot* aParent,
-      ScrollContainerFrame* aScrollContainerFrame
-#ifdef DEBUG
-      ,
-      const nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots
-#endif
-  );
-  static already_AddRefed<ActiveScrolledRoot> CreateASRForStickyFrame(
-      const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame
-#ifdef DEBUG
-      ,
-      const nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots
-#endif
-  );
+      ScrollContainerFrame* aScrollContainerFrame,
+      nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots);
+  static already_AddRefed<ActiveScrolledRoot> GetOrCreateASRForStickyFrame(
+      const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame,
+      nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots);
 
   static const ActiveScrolledRoot* PickAncestor(
       const ActiveScrolledRoot* aOne, const ActiveScrolledRoot* aTwo) {
     MOZ_ASSERT(IsAncestor(aOne, aTwo) || IsAncestor(aTwo, aOne));
     return Depth(aOne) <= Depth(aTwo) ? aOne : aTwo;
+  }
+
+  static const ActiveScrolledRoot* LowestCommonAncestor(
+      const ActiveScrolledRoot* aOne, const ActiveScrolledRoot* aTwo) {
+    uint32_t depth1 = Depth(aOne);
+    uint32_t depth2 = Depth(aTwo);
+    if (depth1 > depth2) {
+      for (uint32_t i = 0; i < (depth1 - depth2); ++i) {
+        MOZ_ASSERT(aOne);
+        aOne = aOne->mParent;
+      }
+    } else if (depth1 < depth2) {
+      for (uint32_t i = 0; i < (depth2 - depth1); ++i) {
+        MOZ_ASSERT(aTwo);
+        aTwo = aTwo->mParent;
+      }
+    }
+    while (aOne != aTwo) {
+      MOZ_ASSERT(aOne);
+      MOZ_ASSERT(aTwo);
+      aOne = aOne->mParent;
+      aTwo = aTwo->mParent;
+    }
+    return aOne;
   }
 
   static const ActiveScrolledRoot* PickDescendant(
@@ -256,11 +272,12 @@ struct ActiveScrolledRoot {
   static const ActiveScrolledRoot* GetStickyASRFromFrame(
       nsIFrame* aStickyFrame);
 
-  enum class ASRKind { Root, Scroll, Sticky };
+  enum class ASRKind { Scroll, Sticky };
 
   RefPtr<const ActiveScrolledRoot> mParent;
   nsIFrame* mFrame = nullptr;
-  ASRKind mKind = ASRKind::Root;
+  // This gets updated by both functions that can create this struct.
+  ASRKind mKind = ASRKind::Scroll;
 
   NS_INLINE_DECL_REFCOUNTING(ActiveScrolledRoot)
 
@@ -984,13 +1001,13 @@ class nsDisplayListBuilder {
   }
 
   /**
-   * Allocate a new ActiveScrolledRoot in the arena. Will be cleaned up
-   * automatically when the arena goes away.
+   * Get an existing or allocate a new ActiveScrolledRoot in the arena. Will be
+   * cleaned up automatically when the arena goes away.
    */
-  ActiveScrolledRoot* AllocateActiveScrolledRoot(
+  ActiveScrolledRoot* GetOrCreateActiveScrolledRoot(
       const ActiveScrolledRoot* aParent,
       ScrollContainerFrame* aScrollContainerFrame);
-  ActiveScrolledRoot* AllocateActiveScrolledRootForSticky(
+  ActiveScrolledRoot* GetOrCreateActiveScrolledRootForSticky(
       const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame);
 
   /**
@@ -1091,10 +1108,10 @@ class nsDisplayListBuilder {
     nsDisplayListBuilder* mBuilder;
     const nsIFrame* mPrevFrame;
     const nsIFrame* mPrevReferenceFrame;
-    nsPoint mPrevOffset;
-    Maybe<nsPoint> mPrevAdditionalOffset;
     nsRect mPrevVisibleRect;
     nsRect mPrevDirtyRect;
+    nsPoint mPrevOffset;
+    Maybe<nsPoint> mPrevAdditionalOffset;
     gfx::CompositorHitTestInfo mPrevCompositorHitTestInfo;
     bool mPrevAncestorHasApzAwareEventHandler;
     bool mPrevBuildingInvisibleItems;
@@ -1189,12 +1206,10 @@ class nsDisplayListBuilder {
           mSavedActiveScrolledRoot(aBuilder->mCurrentActiveScrolledRoot),
           mContentClipASR(aBuilder->ClipState().GetContentClipASR()),
           mDescendantsStartIndex(aBuilder->mActiveScrolledRoots.Length()),
-          mUsed(false),
           mOldScrollParentId(aBuilder->mCurrentScrollParentId),
           mOldForceLayer(aBuilder->mForceLayerForScrollParent),
           mOldContainsNonMinimalDisplayPort(
-              mBuilder->mContainsNonMinimalDisplayPort),
-          mCanBeScrollParent(false) {}
+              mBuilder->mContainsNonMinimalDisplayPort) {}
 
     void SetCurrentScrollParentId(ViewID aScrollId) {
       // Update the old scroll parent id.
@@ -1244,7 +1259,7 @@ class nsDisplayListBuilder {
 
     void EnterScrollFrame(ScrollContainerFrame* aScrollContainerFrame) {
       MOZ_ASSERT(!mUsed);
-      ActiveScrolledRoot* asr = mBuilder->AllocateActiveScrolledRoot(
+      ActiveScrolledRoot* asr = mBuilder->GetOrCreateActiveScrolledRoot(
           mBuilder->mCurrentActiveScrolledRoot, aScrollContainerFrame);
       mBuilder->mCurrentActiveScrolledRoot = asr;
       mUsed = true;
@@ -1277,11 +1292,11 @@ class nsDisplayListBuilder {
      * EnterScrollFrame / InsertScrollFrame is called per instance of this
      * class.
      */
-    bool mUsed;
     ViewID mOldScrollParentId;
+    bool mUsed = false;
     bool mOldForceLayer;
     bool mOldContainsNonMinimalDisplayPort;
-    bool mCanBeScrollParent;
+    bool mCanBeScrollParent = false;
   };
 
   /**
@@ -1831,6 +1846,11 @@ class nsDisplayListBuilder {
   void SetIsDestroying() { mIsDestroying = true; }
   bool IsDestroying() const { return mIsDestroying; }
 
+  nsTHashMap<nsPtrHashKey<const nsIFrame>, bool>&
+  AsyncScrollsWithAnchorHashmap() {
+    return mAsyncScrollsWithAnchor;
+  }
+
  private:
   bool MarkOutOfFlowFrameForDisplay(nsIFrame* aDirtyFrame, nsIFrame* aFrame,
                                     const nsRect& aVisibleRect,
@@ -1977,6 +1997,12 @@ class nsDisplayListBuilder {
   nsRect mCaretRect;
 
   Preserves3DContext mPreserves3DCtx;
+
+  // For frames which are anchored, and compensate for scroll (according to the
+  // spec definition), whether the frame should async scroll with the anchor. It
+  // might be disabled for things that are limitations of our current
+  // implementation (one-axis only, transforms).
+  nsTHashMap<nsPtrHashKey<const nsIFrame>, bool> mAsyncScrollsWithAnchor;
 
   uint8_t mBuildingPageNum = 0;
 
@@ -3145,13 +3171,8 @@ struct LinkedListIterator {
     return *this;
   }
 
-  bool operator==(const LinkedListIterator<T>& aOther) const {
-    return mNode == aOther.mNode;
-  }
-
-  bool operator!=(const LinkedListIterator<T>& aOther) const {
-    return mNode != aOther.mNode;
-  }
+  bool operator==(const LinkedListIterator<T>&) const = default;
+  bool operator!=(const LinkedListIterator<T>&) const = default;
 
   const T operator*() const {
     MOZ_ASSERT(mNode);
@@ -3380,7 +3401,7 @@ class nsDisplayList {
     for (nsDisplayItem* item : TakeItems()) {
       items.AppendElement(Item(item));
     }
-    items.StableSort(aComparator);
+    items.template StableSort<SortBoundsCheck::Disable>(aComparator);
 
     for (Item& item : items) {
       AppendToTop(item);

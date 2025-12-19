@@ -99,7 +99,7 @@ const HTTP_DOWNLOAD_ACTIVITIES = [
  * routed to the remote Web Console.
  *
  * @constructor
- * @param {Object} options
+ * @param {object} options
  * @param {Function(nsIChannel): boolean} options.ignoreChannelFunction
  *        This function will be called for every detected channel to decide if it
  *        should be monitored or not.
@@ -181,7 +181,7 @@ export class NetworkObserver {
    * Network response bodies are piped through a buffer of the given size
    * (in bytes).
    *
-   * @type {Number}
+   * @type {number}
    */
   #responsePipeSegmentSize = Services.prefs.getIntPref(
     "network.buffer.cache.size"
@@ -201,7 +201,7 @@ export class NetworkObserver {
   /**
    * Throttling configuration, see constructor of NetworkThrottleManager
    *
-   * @type {Object}
+   * @type {object}
    */
   #throttleData = null;
   /**
@@ -314,9 +314,21 @@ export class NetworkObserver {
     return this.#throttleData;
   }
 
+  /**
+   * Update the network throttling configuration.
+   *
+   * @param {object|null} value
+   *        The network throttling configuration object, or null if throttling
+   *        should be disabled.
+   */
   setThrottleData(value) {
     this.#throttleData = value;
-    // Clear out any existing throttlers
+
+    // If value is null, the user is disabling throttling, destroy the previous
+    // throttler.
+    if (this.#throttler && value === null) {
+      this.#throttler.destroy();
+    }
     this.#throttler = null;
   }
 
@@ -443,11 +455,13 @@ export class NetworkObserver {
         });
       } else {
         // Handles any early blockings e.g by Web Extensions or by CORS
-        const { blockingExtension, blockedReason } =
-          lazy.NetworkUtils.getBlockedReason(channel, httpActivity.fromCache);
+        const { extension, blockedReason } = lazy.NetworkUtils.getBlockedReason(
+          channel,
+          httpActivity.fromCache
+        );
         this.#createNetworkEvent(httpActivity, {
           blockedReason,
-          blockingExtension,
+          extension,
         });
       }
     }
@@ -929,7 +943,7 @@ export class NetworkObserver {
    */
   #createNetworkEvent(
     httpActivity,
-    { timestamp, blockedReason, blockingExtension, inProgressRequest } = {}
+    { timestamp, blockedReason, extension, inProgressRequest } = {}
   ) {
     if (
       blockedReason === undefined &&
@@ -945,7 +959,7 @@ export class NetworkObserver {
       {
         timestamp,
         blockedReason,
-        blockingExtension,
+        extension,
         discardRequestBody: !this.#saveRequestAndResponseBodies,
         discardResponseBody: !this.#saveRequestAndResponseBodies,
       },

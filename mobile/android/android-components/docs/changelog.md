@@ -4,7 +4,19 @@ title: Changelog
 permalink: /changelog/
 ---
 
-# 147.0 (In Development)
+# 148.0 (In Development)
+* **support-utils**
+  * 🆕 New `keyboardAsState` available to use in Jetpack Compose code to know when the IME is shown or hidden. This works more reliably on older Android versions than the frameworks `isImeVisible` API. [Bug 1988730](https://bugzilla.mozilla.org/show_bug.cgi?id=1988730).
+* **browser-engine-gecko** and **concept-engine**
+  * Add optional link text support to HitResult.UNKNOWN to allow getting the text associated with a link in response to a long click
+* **feature-contextmenu**
+  * 🆕 New: "Copy link text" context menu candidate to allow for the ability to copy link text [Bug 1809303](https://bugzilla.mozilla.org/show_bug.cgi?id=1809303)
+* **lib-state**
+  * ⚠️ **Breaking change**: Removed `MiddlewareContext`. You can now pass in a `Store` directly when invoking a `Middleware`. [Bug 2005443](https://bugzilla.mozilla.org/show_bug.cgi?id=2005443).
+
+# 147.0
+* **browser-state**:
+  * ⚠️ **Breaking change**: New `Unknown` third state for the `SecurityStatus` of the connection used in a tab. The `secure` property has been migrated to `isSecure`. [Bug 2000617](https://bugzilla.mozilla.org/show_bug.cgi?id=2000617).
 * **lib-state**
     * ⚠️ **Breaking change**: Removed thread marshalling from Stores [Bug 1980348](https://bugzilla.mozilla.org/show_bug.cgi?id=1980348).
         * `Store.dispatch` is now invoked on the calling thread.
@@ -14,6 +26,9 @@ permalink: /changelog/
   * 🆕 New `EngineViewScrollingDataBehavior` meant to only be used to animate a bottom toolbar/banner in sync with the current webpage [Bug 1991654](https://bugzilla.mozilla.org/show_bug.cgi?id=1991654).
 * **concept-engine** and **browser-engine-gecko**
   * 🆕 New `verticalScrollPosition` and `verticalScrollDelta` APIs exposing the current scroll position and delta of the webpage [Bug 1990215](https://bugzilla.mozilla.org/show_bug.cgi?id=1990215).
+* **lib-state**
+  * 🆕 New `fragmentStore`, `activityStore`, `composableStore` and `navBackStackStore` APIs available to build a new Store and persist its State in a ViewModel ensuring that it survives Activity recreations. These APIs supersede the existing ones and avoid the possibility of memory leaks. [Bug 1996676](https://bugzilla.mozilla.org/show_bug.cgi?id=1996676).
+  * ⚠️ **Breaking change**: The `lazyStore` API was removed in favor of the new `fragmentStore`, `activityStore` and `composableStore` APIs. [Bug 1996676](https://bugzilla.mozilla.org/show_bug.cgi?id=1996676).
 
 # 146.0
 

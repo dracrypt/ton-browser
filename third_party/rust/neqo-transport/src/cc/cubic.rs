@@ -13,70 +13,7 @@ use std::{
 
 use neqo_common::qtrace;
 
-use crate::cc::classic_cc::WindowAdjustment;
-
-/// > Constant that determines the aggressiveness of CUBIC in competing with other congestion
-/// > control algorithms in high-BDP networks.
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
-///
-/// See section 5.1 of RFC9438 for discussion on how to set the concrete value:
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-fairness-to-reno>
-pub const CUBIC_C: f64 = 0.4;
-/// > CUBIC additive increase factor used in the Reno-friendly region \[to achieve approximately the
-/// > same average congestion window size as Reno\].
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
-///
-/// > The model used to calculate CUBIC_ALPHA is not absolutely precise,
-/// > but analysis and simulation \[...\], as well as over a decade of experience with
-/// > CUBIC in the public Internet, show that this approach produces acceptable
-/// > levels of rate fairness between CUBIC and Reno flows.
-///
-/// Formula:
-///
-/// `CUBIC_ALPHA = 3.0 * (1.0 - CUBIC_BETA) / (1.0 + CUBIC_BETA)`
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-reno-friendly-region>
-pub const CUBIC_ALPHA: f64 = 3.0 * (1.0 - 0.7) / (1.0 + 0.7); // with CUBIC_BETA = 0.7
-/// `CUBIC_BETA` = 0.7;
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
-///
-/// > To balance between the scalability and convergence speed, CUBIC sets the multiplicative window
-/// > decrease factor to 0.7 while Standard TCP uses 0.5. While this improves the scalability of
-/// > CUBIC, a side effect of this decision is slower convergence, especially under low statistical
-/// > multiplexing environments.
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-principle-4-for-the-cubic-d>
-///
-/// For implementation reasons neqo uses a dividend and divisor approach with `usize` typing to
-/// construct `CUBIC_BETA = 0.7`.
-pub const CUBIC_BETA_USIZE_DIVIDEND: usize = 7;
-/// > CUBIC multiplicative decrease factor
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
-///
-/// > To balance between the scalability and convergence speed, CUBIC sets the multiplicative window
-/// > decrease factor to 0.7 while Standard TCP uses 0.5. While this improves the scalability of
-/// > CUBIC, a side effect of this decision is slower convergence, especially under low statistical
-/// > multiplexing environments.
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-principle-4-for-the-cubic-d>
-///
-/// For implementation reasons neqo uses a dividend and divisor approach with `usize` typing to
-/// construct `CUBIC_BETA = 0.7`
-pub const CUBIC_BETA_USIZE_DIVISOR: usize = 10;
-
-/// This is the factor that is used by fast convergence to further reduce the next `W_max` when a
-/// congestion event occurs while `cwnd < W_max`. This speeds up the bandwidth release for when a
-/// new flow joins the network.
-///
-/// The calculation assumes `CUBIC_BETA = 0.7`.
-///
-/// <https://datatracker.ietf.org/doc/html/rfc9438#name-fast-convergence>
-pub const CUBIC_FAST_CONVERGENCE_FACTOR: f64 = (1.0 + 0.7) / 2.0;
+use crate::cc::{classic_cc::WindowAdjustment, CongestionEvent};
 
 /// Convert an integer congestion window value into a floating point value.
 /// This has the effect of reducing larger values to `1<<53`.
@@ -157,6 +94,86 @@ impl Display for Cubic {
 }
 
 impl Cubic {
+    /// > Constant that determines the aggressiveness of CUBIC in competing with other congestion
+    /// > control algorithms in high-BDP networks.
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
+    ///
+    /// See section 5.1 of RFC9438 for discussion on how to set the concrete value:
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-fairness-to-reno>
+    pub const C: f64 = 0.4;
+
+    /// > CUBIC additive increase factor used in the Reno-friendly region \[to achieve approximately
+    /// > the same average congestion window size as Reno\].
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
+    ///
+    /// > The model used to calculate CUBIC_ALPHA is not absolutely precise,
+    /// > but analysis and simulation \[...\], as well as over a decade of experience with
+    /// > CUBIC in the public Internet, show that this approach produces acceptable
+    /// > levels of rate fairness between CUBIC and Reno flows.
+    ///
+    /// Formula:
+    ///
+    /// `ALPHA = 3.0 * (1.0 - CUBIC_BETA) / (1.0 + CUBIC_BETA)`
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-reno-friendly-region>
+    pub const ALPHA: f64 = 3.0 * (1.0 - 0.7) / (1.0 + 0.7); // with CUBIC_BETA = 0.7
+
+    /// > CUBIC multiplicative decrease factor
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
+    ///
+    /// > To balance between the scalability and convergence speed, CUBIC sets the multiplicative
+    /// > window
+    /// > decrease factor to 0.7 while Standard TCP uses 0.5. While this improves the scalability of
+    /// > CUBIC, a side effect of this decision is slower convergence, especially under low
+    /// > statistical multiplexing environments.
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-principle-4-for-the-cubic-d>
+    ///
+    /// For implementation reasons neqo uses a dividend and divisor approach with `usize` typing.
+    /// The divisor is set to `100` to also accommodate the `0.85` beta value for ECN induced
+    /// congestion events.
+    pub const BETA_USIZE_DIVISOR: usize = 100;
+
+    /// > CUBIC multiplicative decrease factor
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-constants-of-interest>
+    ///
+    /// > To balance between the scalability and convergence speed, CUBIC sets the multiplicative
+    /// > window
+    /// > decrease factor to 0.7 while Standard TCP uses 0.5. While this improves the scalability of
+    /// > CUBIC, a side effect of this decision is slower convergence, especially under low
+    /// > statistical multiplexing environments.
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-principle-4-for-the-cubic-d>
+    ///
+    /// For implementation reasons neqo uses a dividend and divisor approach with `usize` typing to
+    /// construct `CUBIC_BETA = 0.7` from `70/100`.
+    pub const BETA_USIZE_DIVIDEND: usize = 70;
+
+    /// As per RFC 8511 it makes sense to have a different decrease factor for ECN-CE congestion
+    /// events than for loss induced congestion events.
+    ///
+    /// > CUBIC connections benefit from beta_{ecn} of 0.85.
+    ///
+    /// <https://www.rfc-editor.org/rfc/rfc8511.html#section-3.1>
+    ///
+    /// For implementation reasons neqo uses a dividend and divisor approach with `usize` typing to
+    /// construct the beta value from `85/100`.
+    pub const BETA_USIZE_DIVIDEND_ECN: usize = 85;
+
+    /// This is the factor that is used by fast convergence to further reduce the next `W_max` when
+    /// a congestion event occurs while `cwnd < W_max`. This speeds up the bandwidth release for
+    /// when a new flow joins the network.
+    ///
+    /// The calculation assumes `CUBIC_BETA = 0.7`.
+    ///
+    /// <https://datatracker.ietf.org/doc/html/rfc9438#name-fast-convergence>
+    pub const FAST_CONVERGENCE_FACTOR: f64 = (1.0 + 0.7) / 2.0;
+
     /// Original equation is:
     ///
     /// `k = cubic_root((w_max - cwnd_epoch)/C)`
@@ -171,7 +188,7 @@ impl Cubic {
     ///
     /// `k = cubic_root((w_max - cwnd_epoch)/SMSS/C)`
     fn calc_k(&self, cwnd_epoch: f64, max_datagram_size: f64) -> f64 {
-        ((self.w_max - cwnd_epoch) / max_datagram_size / CUBIC_C).cbrt()
+        ((self.w_max - cwnd_epoch) / max_datagram_size / Self::C).cbrt()
     }
 
     /// `w_cubic(t) = C*(t-K)^3 + w_max`
@@ -185,7 +202,7 @@ impl Cubic {
     ///
     /// `w_cubic(t) = (C*(t-K)^3) * SMSS + w_max`
     fn w_cubic(&self, t: f64, max_datagram_size: f64) -> f64 {
-        (CUBIC_C * (t - self.k).powi(3)).mul_add(max_datagram_size, self.w_max)
+        (Self::C * (t - self.k).powi(3)).mul_add(max_datagram_size, self.w_max)
     }
 
     /// Sets `w_est`, `k`, `t_epoch` and `reno_acked_bytes` at the start of a new epoch
@@ -301,14 +318,14 @@ impl WindowAdjustment for Cubic {
         // <https://datatracker.ietf.org/doc/html/rfc9438#section-4.3-9>
 
         // We first calculate the increase in segments and floor it to only include whole segments.
-        let increase = (CUBIC_ALPHA * self.reno_acked_bytes / curr_cwnd).floor();
+        let increase = (Self::ALPHA * self.reno_acked_bytes / curr_cwnd).floor();
 
         // Only apply the increase if it is at least by one segment.
         if increase > 0.0 {
             self.w_est += increase * max_datagram_size;
             // Because we floored the increase to whole segments we cannot just zero
             // `reno_acked_bytes` but have to calculate the actual bytes used.
-            let acked_bytes_used = increase * curr_cwnd / CUBIC_ALPHA;
+            let acked_bytes_used = increase * curr_cwnd / Self::ALPHA;
             self.reno_acked_bytes -= acked_bytes_used;
         }
 
@@ -379,6 +396,7 @@ impl WindowAdjustment for Cubic {
         curr_cwnd: usize,
         acked_bytes: usize,
         max_datagram_size: usize,
+        congestion_event: CongestionEvent,
     ) -> (usize, usize) {
         let curr_cwnd_f64 = convert_to_f64(curr_cwnd);
         // Fast Convergence
@@ -398,16 +416,21 @@ impl WindowAdjustment for Cubic {
         // "Check cwnd + MAX_DATAGRAM_SIZE instead of cwnd because with cwnd in bytes, cwnd may be
         // slightly off."
         self.w_max = if curr_cwnd_f64 + convert_to_f64(max_datagram_size) < self.w_max {
-            curr_cwnd_f64 * CUBIC_FAST_CONVERGENCE_FACTOR
+            curr_cwnd_f64 * Self::FAST_CONVERGENCE_FACTOR
         } else {
             curr_cwnd_f64
         };
 
         // Reducing the congestion window and resetting time
         self.t_epoch = None;
+        let beta_dividend = if congestion_event == CongestionEvent::Ecn {
+            Self::BETA_USIZE_DIVIDEND_ECN
+        } else {
+            Self::BETA_USIZE_DIVIDEND
+        };
         (
-            curr_cwnd * CUBIC_BETA_USIZE_DIVIDEND / CUBIC_BETA_USIZE_DIVISOR,
-            acked_bytes * CUBIC_BETA_USIZE_DIVIDEND / CUBIC_BETA_USIZE_DIVISOR,
+            curr_cwnd * beta_dividend / Self::BETA_USIZE_DIVISOR,
+            acked_bytes * beta_dividend / Self::BETA_USIZE_DIVISOR,
         )
     }
 

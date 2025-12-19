@@ -5,49 +5,40 @@
 package org.mozilla.fenix.settings.settingssearch
 
 import androidx.core.os.bundleOf
-import androidx.lifecycle.Lifecycle.State.RESUMED
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.NavController
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
 
 /**
  * [Middleware] for the settings search screen.
  *
- * @property fenixSettingsIndexer [SettingsIndexer] to use for indexing and querying settings.
- * @property dispatcher [CoroutineDispatcher] to use for performing background tasks.
+ * @param fenixSettingsIndexer [SettingsIndexer] to use for indexing and querying settings.
+ * @param navController [NavController] used for navigation.
+ * @param recentSettingsSearchesRepository [RecentSettingsSearchesRepository] used for storing recent searches.
+ * @param scope [CoroutineScope] used for running long running operations in background.
+ * @param dispatcher [CoroutineDispatcher] to use for performing background tasks.
  */
 class SettingsSearchMiddleware(
-    val fenixSettingsIndexer: SettingsIndexer,
-    val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val fenixSettingsIndexer: SettingsIndexer,
+    private val navController: NavController,
+    private val recentSettingsSearchesRepository: RecentSettingsSearchesRepository,
+    private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : Middleware<SettingsSearchState, SettingsSearchAction> {
-    internal var environment: SettingsSearchEnvironment? = null
-
     override fun invoke(
-        context: MiddlewareContext<SettingsSearchState, SettingsSearchAction>,
+        store: Store<SettingsSearchState, SettingsSearchAction>,
         next: (SettingsSearchAction) -> Unit,
         action: SettingsSearchAction,
     ) {
-        val store = context.store as SettingsSearchStore
         when (action) {
             is SettingsSearchAction.Init -> {
                 next(action)
                 fenixSettingsIndexer.indexAllSettings()
-            }
-            is SettingsSearchAction.EnvironmentRehydrated -> {
-                next(action)
-                environment = action.environment
-                environment?.fragment?.viewLifecycleOwner?.lifecycleScope?.launch {
-                    observeRecentSearches(store)
-                }
-            }
-            is SettingsSearchAction.EnvironmentCleared -> {
-                next(action)
-                environment = null
+                scope.launch { observeRecentSearches(store) }
             }
             is SettingsSearchAction.SearchQueryUpdated -> {
                 next(action)
@@ -73,17 +64,17 @@ class SettingsSearchMiddleware(
                 )
                 val fragmentId = searchItem.preferenceFileInformation.fragmentId
                 CoroutineScope(dispatcher).launch {
-                    environment?.recentSettingsSearchesRepository?.addRecentSearchItem(searchItem)
+                    recentSettingsSearchesRepository.addRecentSearchItem(searchItem)
                 }
                 CoroutineScope(Dispatchers.Main).launch {
-                    environment?.navController?.navigate(fragmentId, bundle)
+                    navController.navigate(fragmentId, bundle)
                 }
                 next(action)
             }
             is SettingsSearchAction.ClearRecentSearchesClicked -> {
                 next(action)
                 CoroutineScope(Dispatchers.IO).launch {
-                    environment?.recentSettingsSearchesRepository?.clearRecentSearches()
+                    recentSettingsSearchesRepository.clearRecentSearches()
                 }
             }
             else -> {
@@ -98,14 +89,10 @@ class SettingsSearchMiddleware(
      *
      * @param store The [SettingsSearchStore] to dispatch the updates to.
      */
-    private fun observeRecentSearches(store: SettingsSearchStore) {
-        environment?.fragment?.viewLifecycleOwner?.run {
-            lifecycleScope.launch {
-                repeatOnLifecycle(RESUMED) {
-                    environment?.recentSettingsSearchesRepository?.recentSearches?.collect { recents ->
-                        store.dispatch(SettingsSearchAction.RecentSearchesUpdated(recents))
-                    }
-                }
+    private fun observeRecentSearches(store: Store<SettingsSearchState, SettingsSearchAction>) {
+        scope.launch {
+            recentSettingsSearchesRepository.recentSearches.collect { recents ->
+                store.dispatch(SettingsSearchAction.RecentSearchesUpdated(recents))
             }
         }
     }

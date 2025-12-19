@@ -57,10 +57,10 @@ use crate::capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use crate::composite::{CompositeState, CompositeTileSurface, CompositorInputLayer, CompositorSurfaceTransform, ResolvedExternalSurface};
 use crate::composite::{CompositorKind, Compositor, NativeTileId, CompositeFeatures, CompositeSurfaceFormat, ResolvedExternalSurfaceColorData};
 use crate::composite::{CompositorConfig, NativeSurfaceOperationDetails, NativeSurfaceId, NativeSurfaceOperation, ClipRadius};
-use crate::composite::TileKind;
+use crate::composite::{CompositeRoundedCorner, TileKind};
 #[cfg(feature = "debugger")]
 use api::debugger::{CompositorDebugInfo, DebuggerTextureContent};
-use crate::segment::SegmentBuilder;
+use crate::segment::{EdgeAaSegmentMask, SegmentBuilder};
 use crate::{debug_colors, CompositorInputConfig, CompositorSurfaceUsage};
 use crate::device::{DepthFunction, Device, DrawTarget, ExternalTexture, GpuFrameId, UploadPBOPool};
 use crate::device::{ReadTarget, ShaderError, Texture, TextureFilter, TextureFlags, TextureSlot, Texel};
@@ -70,7 +70,7 @@ use crate::device::FBOId;
 use crate::debug_item::DebugItem;
 use crate::frame_builder::Frame;
 use glyph_rasterizer::GlyphFormat;
-use crate::gpu_types::{ScalingInstance, SvgFilterInstance, SVGFEFilterInstance, CopyInstance, PrimitiveInstanceData};
+use crate::gpu_types::{ScalingInstance, SVGFEFilterInstance, CopyInstance, PrimitiveInstanceData};
 use crate::gpu_types::{BlurInstance, ClearInstance, CompositeInstance, ZBufferId};
 use crate::internal_types::{TextureSource, TextureSourceExternal, FrameVec};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -78,9 +78,10 @@ use crate::internal_types::DebugOutput;
 use crate::internal_types::{CacheTextureId, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 use crate::internal_types::{TextureCacheAllocInfo, TextureCacheAllocationKind, TextureUpdateList};
 use crate::internal_types::{RenderTargetInfo, Swizzle, DeferredResolveIndex};
-use crate::picture::{ResolvedSurfaceTexture, TileId};
+use crate::picture::ResolvedSurfaceTexture;
+use crate::tile_cache::TileId;
 use crate::prim_store::DeferredResolve;
-use crate::profiler::{self, GpuProfileTag, TransactionProfile};
+use crate::profiler::{self, RenderCommandLog, GpuProfileTag, TransactionProfile};
 use crate::profiler::{Profiler, add_event_marker, add_text_marker, thread_is_being_profiled};
 use crate::device::query::GpuProfiler;
 use crate::render_target::ResolveOp;
@@ -107,6 +108,7 @@ use std::sync::Arc;
 
 use std::{
     cell::RefCell,
+    collections::HashSet,
     collections::VecDeque,
     f32,
     ffi::c_void,
@@ -129,7 +131,8 @@ pub use debug::DebugRenderer;
 pub use shade::{PendingShadersToPrecache, Shaders, SharedShaders};
 pub use vertex::{desc, VertexArrayKind, MAX_VERTEX_TEXTURE_WIDTH};
 pub use gpu_buffer::{GpuBuffer, GpuBufferF, GpuBufferBuilderF, GpuBufferI, GpuBufferBuilderI};
-pub use gpu_buffer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferWriterF, GpuBufferBlockF};
+pub use gpu_buffer::{GpuBufferHandle, GpuBufferAddress, GpuBufferBuilder, GpuBufferWriterF};
+pub use gpu_buffer::{GpuBufferBlockF, GpuBufferDataF, GpuBufferDataI, GpuBufferWriterI};
 
 /// The size of the array of each type of vertex data texture that
 /// is round-robin-ed each frame during bind_frame_data. Doing this
@@ -258,10 +261,6 @@ const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag {
     label: "Transparent pass",
     color: debug_colors::BLACK,
 };
-const GPU_TAG_SVG_FILTER: GpuProfileTag = GpuProfileTag {
-    label: "SvgFilter",
-    color: debug_colors::LEMONCHIFFON,
-};
 const GPU_TAG_SVG_FILTER_NODES: GpuProfileTag = GpuProfileTag {
     label: "SvgFilterNodes",
     color: debug_colors::LEMONCHIFFON,
@@ -285,7 +284,6 @@ struct OcclusionItemKey {
 // after occlusion culling.
 struct SwapChainLayer {
     occlusion: occlusion::FrontToBackBuilder<OcclusionItemKey>,
-    clear_tiles: Vec<occlusion::Item<OcclusionItemKey>>,
 }
 
 // Store rects state of tile used for compositing with layer compositor
@@ -839,6 +837,7 @@ pub struct Renderer {
     frame_counter: u64,
     resource_upload_time: f64,
     profiler: Profiler,
+    command_log: Option<RenderCommandLog>,
     #[cfg(feature = "debugger")]
     debugger: Debugger,
 
@@ -1342,6 +1341,13 @@ impl Renderer {
             DebugCommand::GetDebugFlags(tx) => {
                 tx.send(self.debug_flags).unwrap();
             }
+            DebugCommand::SetRenderCommandLog(enabled) => {
+                if enabled && self.command_log.is_none() {
+                    self.command_log = Some(RenderCommandLog::new());
+                } else if !enabled {
+                    self.command_log = None;
+                }
+            }
             #[cfg(feature = "debugger")]
             DebugCommand::AddDebugClient(client) => {
                 self.debugger.add_client(
@@ -1622,6 +1628,10 @@ impl Renderer {
         self.profile.end_time_if_started(profiler::FRAME_SEND_TIME);
         self.profile.start_time(profiler::RENDERER_TIME);
 
+        if let Some(log) = &mut self.command_log {
+            log.clear();
+        }
+
         self.staging_texture_pool.begin_frame();
 
         let compositor_kind = active_doc.frame.composite_state.compositor_kind;
@@ -1844,6 +1854,7 @@ impl Renderer {
         self.debugger.update(
             self.debug_flags,
             &self.profiler,
+            &self.command_log,
         );
 
         // Note: profile counters must be set before this or they will count for next frame.
@@ -2009,6 +2020,7 @@ impl Renderer {
                         None,
                         &mut self.renderer_errors,
                         &mut self.profile,
+                        &mut self.command_log,
                     );
 
                 self.draw_instanced_batch(
@@ -2203,6 +2215,10 @@ impl Renderer {
         textures: &BatchTextures,
         stats: &mut RendererStats,
     ) {
+        if let Some(history) = &mut self.command_log {
+            history.draw(data.len() as u32);
+        }
+
         self.bind_textures(textures);
 
         // If we end up with an empty draw call here, that means we have
@@ -2401,6 +2417,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 for (texture_source, prim_instances) in prim_instances_map {
@@ -2431,6 +2448,7 @@ impl Renderer {
                             None,
                             &mut self.renderer_errors,
                             &mut self.profile,
+                            &mut self.command_log,
                         );
                     }
 
@@ -2475,6 +2493,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.draw_instanced_batch(
@@ -2492,6 +2511,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.device.enable_scissor();
@@ -2517,6 +2537,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 for (texture, prim_instances) in &masks.image_mask_instances {
@@ -2538,6 +2559,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 for ((scissor_rect, texture), prim_instances) in &masks.image_mask_instances_with_scissor {
@@ -2561,6 +2583,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.draw_instanced_batch(
@@ -2578,6 +2601,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.device.enable_scissor();
@@ -2691,6 +2715,7 @@ impl Renderer {
                     Some(self.texture_resolver.get_texture_size(source).to_f32()),
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
             self.draw_instanced_batch(
@@ -2700,35 +2725,6 @@ impl Renderer {
                 stats,
             );
         }
-    }
-
-    fn handle_svg_filters(
-        &mut self,
-        textures: &BatchTextures,
-        svg_filters: &[SvgFilterInstance],
-        projection: &default::Transform3D<f32>,
-        stats: &mut RendererStats,
-    ) {
-        if svg_filters.is_empty() {
-            return;
-        }
-
-        let _timer = self.gpu_profiler.start_timer(GPU_TAG_SVG_FILTER);
-
-        self.shaders.borrow_mut().cs_svg_filter().bind(
-            &mut self.device,
-            &projection,
-            None,
-            &mut self.renderer_errors,
-            &mut self.profile,
-        );
-
-        self.draw_instanced_batch(
-            &svg_filters,
-            VertexArrayKind::SvgFilter,
-            textures,
-            stats,
-        );
     }
 
     fn handle_svg_nodes(
@@ -2750,6 +2746,7 @@ impl Renderer {
             None,
             &mut self.renderer_errors,
             &mut self.profile,
+            &mut self.command_log,
         );
 
         self.draw_instanced_batch(
@@ -2863,6 +2860,9 @@ impl Renderer {
         stats: &mut RendererStats,
     ) {
         profile_scope!("draw_picture_cache_target");
+        if let Some(history) = &mut self.command_log {
+            history.begin_render_target("Picture tile", draw_target.dimensions());
+        }
 
         self.profile.inc(profiler::RENDERED_PICTURE_TILES);
         let _gm = self.gpu_profiler.start_marker("picture cache target");
@@ -2917,6 +2917,7 @@ impl Renderer {
                         None,
                         &mut self.renderer_errors,
                         &mut self.profile,
+                        &mut self.command_log,
                     );
                     self.draw_instanced_batch(
                         &[instance],
@@ -3034,6 +3035,7 @@ impl Renderer {
                             &mut self.device, projection, None,
                             &mut self.renderer_errors,
                             &mut self.profile,
+                            &mut self.command_log,
                         );
 
                     let _timer = self.gpu_profiler.start_timer(batch.key.kind.sampler_tag());
@@ -3136,6 +3138,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.draw_instanced_batch(
@@ -3261,6 +3264,7 @@ impl Renderer {
                             None,
                             &mut self.renderer_errors,
                             &mut self.profile,
+                            &mut self.command_log,
                         );
 
                     ( textures, instance )
@@ -3291,6 +3295,7 @@ impl Renderer {
                             None,
                             &mut self.renderer_errors,
                             &mut self.profile,
+                            &mut self.command_log,
                         );
 
                     ( textures, instance )
@@ -3343,6 +3348,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
         for item in tiles_iter {
@@ -3470,23 +3476,6 @@ impl Renderer {
                         },
                     }
                 }
-                CompositeTileSurface::Clear => {
-                    let dummy = TextureSource::Dummy;
-                    let image_buffer_kind = dummy.image_buffer_kind();
-                    let instance = CompositeInstance::new(
-                        tile_rect,
-                        clip_rect,
-                        PremultipliedColorF::BLACK,
-                        flip,
-                        clip,
-                    );
-                    let features = instance.get_rgb_features();
-                    (
-                        instance,
-                        BatchTextures::composite_rgb(dummy),
-                        (CompositeSurfaceFormat::Rgba, image_buffer_kind, features, None),
-                    )
-                }
                 CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::Native { .. } } => {
                     unreachable!("bug: found native surface in simple composite path");
                 }
@@ -3518,6 +3507,7 @@ impl Renderer {
                         shader_params.3,
                         &mut self.renderer_errors,
                         &mut self.profile,
+                        &mut self.command_log,
                     );
 
                 current_shader_params = shader_params;
@@ -3606,21 +3596,6 @@ impl Renderer {
             self.gpu_profiler.finish_sampler(opaque_sampler);
         }
 
-        // Draw clear tiles
-        if !layer.clear_tiles.is_empty() {
-            let transparent_sampler = self.gpu_profiler.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
-            self.set_blend(true, FramebufferKind::Main);
-            self.device.set_blend_mode_premultiplied_dest_out();
-            self.draw_tile_list(
-                layer.clear_tiles.iter(),
-                &composite_state,
-                &composite_state.external_surfaces,
-                projection,
-                &mut results.stats,
-            );
-            self.gpu_profiler.finish_sampler(transparent_sampler);
-        }
-
         // Draw alpha tiles
         let alpha_items = layer.occlusion.alpha_items();
         if !alpha_items.is_empty() {
@@ -3655,11 +3630,7 @@ impl Renderer {
         let _gm = self.gpu_profiler.start_marker("framebuffer");
         let _timer = self.gpu_profiler.start_timer(GPU_TAG_COMPOSITE);
 
-        // We are only interested in tiles backed with actual cached pixels so we don't
-        // count clear tiles here.
-        let num_tiles = composite_state.tiles
-            .iter()
-            .filter(|tile| tile.kind != TileKind::Clear).count();
+        let num_tiles = composite_state.tiles.len();
         self.profile.set(profiler::PICTURE_TILES, num_tiles);
 
         let (window_is_opaque, enable_screenshot)  = match self.compositor_config.layer_compositor() {
@@ -3692,10 +3663,11 @@ impl Renderer {
                 is_opaque: false,
                 offset: DeviceIntPoint::zero(),
                 clip_rect: device_size.into(),
+                rounded_clip_rect: device_size.into(),
+                rounded_clip_radii: ClipRadius::EMPTY,                
             });
 
             swapchain_layers.push(SwapChainLayer {
-                clear_tiles: Vec::new(),
                 occlusion: occlusion::FrontToBackBuilder::with_capacity(cap, cap),
             });
         }
@@ -3744,8 +3716,7 @@ impl Renderer {
             // Determine if the tile is an external surface or content
             let usage = match tile.surface {
                 CompositeTileSurface::Texture { .. } |
-                CompositeTileSurface::Color { .. } |
-                CompositeTileSurface::Clear => {
+                CompositeTileSurface::Color { .. } => {
                     CompositorSurfaceUsage::Content
                 }
                 CompositeTileSurface::ExternalSurface { external_surface_index } => {
@@ -3831,12 +3802,14 @@ impl Renderer {
             };
 
             if let Some(new_layer_kind) = new_layer_kind {
-                let (offset, clip_rect, is_opaque) = match usage {
+                let (offset, clip_rect, is_opaque, rounded_clip_rect, rounded_clip_radii) = match usage {
                     CompositorSurfaceUsage::Content => {
                         (
                             DeviceIntPoint::zero(),
                             device_size.into(),
                             false,      // Assume not opaque, we'll calculate this later
+                            device_size.into(),
+                            ClipRadius::EMPTY,
                         )
                     }
                     CompositorSurfaceUsage::External { .. } => {
@@ -3857,7 +3830,29 @@ impl Renderer {
                             });
                         }
 
-                        (rect.min.to_i32(), clip_rect, is_opaque)
+                        let (rounded_clip_rect, rounded_clip_radii) = match tile.clip_index {
+                            Some(clip_index) => {
+                                let clip = composite_state.get_compositor_clip(clip_index);
+                                let radius = ClipRadius {
+                                    top_left: clip.radius.top_left.width.round() as i32,
+                                    top_right: clip.radius.top_right.width.round() as i32,
+                                    bottom_left: clip.radius.bottom_left.width.round() as i32,
+                                    bottom_right: clip.radius.bottom_right.width.round() as i32,
+                                };
+                                (clip.rect.to_i32(), radius)
+                            }
+                            None => {
+                                (clip_rect, ClipRadius::EMPTY)
+                            }
+                        };
+
+                        (
+                            rect.min.to_i32(),
+                            clip_rect,
+                            is_opaque,
+                            rounded_clip_rect,
+                            rounded_clip_radii,
+                        )
                     }
                     CompositorSurfaceUsage::DebugOverlay => unreachable!(),
                 };
@@ -3867,10 +3862,11 @@ impl Renderer {
                     is_opaque,
                     offset,
                     clip_rect,
+                    rounded_clip_rect,
+                    rounded_clip_radii,
                 });
 
                 swapchain_layers.push(SwapChainLayer {
-                    clear_tiles: Vec::new(),
                     occlusion: occlusion::FrontToBackBuilder::with_capacity(cap, cap),
                 })
             }
@@ -3878,44 +3874,39 @@ impl Renderer {
 
             // Caluclate actual visible tile's rects
 
-            match tile.kind {
-                TileKind::Opaque | TileKind::Alpha => {
-                    let is_opaque = tile.kind != TileKind::Alpha;
+            let is_opaque = tile.kind == TileKind::Opaque;
 
-                    match tile.clip_index {
-                        Some(clip_index) => {
-                            let clip = composite_state.get_compositor_clip(clip_index);
+            match tile.clip_index {
+                Some(clip_index) => {
+                    let clip = composite_state.get_compositor_clip(clip_index);
 
-                            // TODO(gw): Make segment builder generic on unit to avoid casts below.
-                            segment_builder.initialize(
-                                rect.cast_unit(),
-                                None,
-                                rect.cast_unit(),
-                            );
-                            segment_builder.push_clip_rect(
-                                clip.rect.cast_unit(),
-                                Some(clip.radius),
-                                ClipMode::Clip,
-                            );
-                            segment_builder.build(|segment| {
-                                let key = OcclusionItemKey { tile_index: idx, needs_mask: segment.has_mask };
+                    // TODO(gw): Make segment builder generic on unit to avoid casts below.
+                    segment_builder.initialize(
+                        rect.cast_unit(),
+                        None,
+                        rect.cast_unit(),
+                    );
+                    segment_builder.push_clip_rect(
+                        clip.rect.cast_unit(),
+                        Some(clip.radius),
+                        ClipMode::Clip,
+                    );
+                    segment_builder.build(|segment| {
+                        let key = OcclusionItemKey { tile_index: idx, needs_mask: segment.has_mask };
 
-                                full_render_occlusion.add(
-                                    &segment.rect.cast_unit(),
-                                    is_opaque && !segment.has_mask,
-                                    key,
-                                );
-                            });
-                        }
-                        None => {
-                            full_render_occlusion.add(&rect, is_opaque, OcclusionItemKey {
-                                tile_index: idx,
-                                needs_mask: false,
-                            });
-                        }
-                    }
+                        full_render_occlusion.add(
+                            &segment.rect.cast_unit(),
+                            is_opaque && !segment.has_mask,
+                            key,
+                        );
+                    });
                 }
-                TileKind::Clear => {}
+                None => {
+                    full_render_occlusion.add(&rect, is_opaque, OcclusionItemKey {
+                        tile_index: idx,
+                        needs_mask: false,
+                    });
+                }
             }
         }
 
@@ -3940,10 +3931,11 @@ impl Renderer {
                         is_opaque: true,
                         offset: DeviceIntPoint::zero(),
                         clip_rect: device_size.into(),
+                        rounded_clip_rect: device_size.into(),
+                        rounded_clip_radii: ClipRadius::EMPTY,
                     });
 
                     swapchain_layers.push(SwapChainLayer {
-                        clear_tiles: Vec::new(),
                         occlusion: occlusion::FrontToBackBuilder::with_capacity(cap, cap),
                     });
                 }
@@ -3998,16 +3990,11 @@ impl Renderer {
                 let mut combined_dirty_rect = DeviceRect::zero();
 
                 for tile in composite_state.tiles.iter() {
-                    if tile.kind == TileKind::Clear {
-                        continue;
-                    }
-
                     if tile.tile_id.is_none() {
                         match tile.surface {
                             CompositeTileSurface::ExternalSurface { .. } => {}
                             CompositeTileSurface::Texture { .. }  |
-                            CompositeTileSurface::Color { .. } |
-                            CompositeTileSurface::Clear => {
+                            CompositeTileSurface::Color { .. } => {
                                 unreachable!();
                             },
                         }
@@ -4096,6 +4083,8 @@ impl Renderer {
 
         // Check tiles handling with partial_present_mode
 
+        let mut opaque_rounded_corners: HashSet<CompositeRoundedCorner> = HashSet::new();
+
         // NOTE: Tiles here are being iterated in front-to-back order by
         //       z-id, due to the sort in composite_state.end_frame()
         for (idx, tile) in composite_state.tiles.iter().enumerate() {
@@ -4133,54 +4122,78 @@ impl Renderer {
                 Some(layer_index) => layer_index,
             };
 
-            // For normal tiles, add to occlusion tracker. For clear tiles, add directly
-            // to the swapchain tile list
+            // For normal tiles, add to occlusion tracker
             let layer = &mut swapchain_layers[layer_index];
 
-            // Clear tiles overwrite whatever is under them, so they are treated as opaque.
-            match tile.kind {
-                TileKind::Opaque | TileKind::Alpha => {
-                    let is_opaque = tile.kind != TileKind::Alpha;
+            let is_opaque = tile.kind == TileKind::Opaque;
 
-                    match tile.clip_index {
-                        Some(clip_index) => {
-                            let clip = composite_state.get_compositor_clip(clip_index);
+            match tile.clip_index {
+                Some(clip_index) => {
+                    let clip = composite_state.get_compositor_clip(clip_index);
 
-                                // TODO(gw): Make segment builder generic on unit to avoid casts below.
-                            segment_builder.initialize(
-                                rect.cast_unit(),
-                                None,
-                                rect.cast_unit(),
-                            );
-                            segment_builder.push_clip_rect(
-                                clip.rect.cast_unit(),
-                                Some(clip.radius),
-                                ClipMode::Clip,
-                            );
-                            segment_builder.build(|segment| {
-                                let key = OcclusionItemKey { tile_index: idx, needs_mask: segment.has_mask };
+                        // TODO(gw): Make segment builder generic on unit to avoid casts below.
+                    segment_builder.initialize(
+                        rect.cast_unit(),
+                        None,
+                        rect.cast_unit(),
+                    );
+                    segment_builder.push_clip_rect(
+                        clip.rect.cast_unit(),
+                        Some(clip.radius),
+                        ClipMode::Clip,
+                    );
+                    segment_builder.build(|segment| {
+                        let key = OcclusionItemKey { tile_index: idx, needs_mask: segment.has_mask };
 
-                                layer.occlusion.add(
-                                    &segment.rect.cast_unit(),
-                                    is_opaque && !segment.has_mask,
-                                    key,
-                                );
-                            });
+                        let radius = if segment.edge_flags ==
+                            EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT &&
+                            !clip.radius.top_left.is_empty() {
+                            Some(clip.radius.top_left)
+                        } else if segment.edge_flags ==
+                            EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT &&
+                            !clip.radius.top_right.is_empty() {
+                            Some(clip.radius.top_right)
+                        } else if segment.edge_flags ==
+                            EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT &&
+                            !clip.radius.bottom_left.is_empty() {
+                            Some(clip.radius.bottom_left)
+                        } else if segment.edge_flags ==
+                            EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT &&
+                            !clip.radius.bottom_right.is_empty() {
+                            Some(clip.radius.bottom_right)
+                        } else {
+                            None
+                        };
+
+                        if let Some(radius) = radius {
+                            let rounded_corner = CompositeRoundedCorner {
+                                    rect: segment.rect.cast_unit(),
+                                    radius: radius,
+                                    edge_flags: segment.edge_flags,
+                            };
+
+                            // Drop overdraw rounded rect
+                            if opaque_rounded_corners.contains(&rounded_corner) {
+                                return;
+                            }
+                            
+                            if is_opaque {
+                                opaque_rounded_corners.insert(rounded_corner);
+                            }
                         }
-                        None => {
-                            layer.occlusion.add(&rect, is_opaque, OcclusionItemKey {
-                                tile_index: idx,
-                                needs_mask: false,
-                            });
-                        }
-                    }
+
+                        layer.occlusion.add(
+                            &segment.rect.cast_unit(),
+                            is_opaque && !segment.has_mask,
+                            key,
+                        );
+                    });
                 }
-                TileKind::Clear => {
-                    // Clear tiles are specific to how we render the window buttons on
-                    // Windows 8. They clobber what's under them so they can be treated as opaque,
-                    // but require a different blend state so they will be rendered after the opaque
-                    // tiles and before transparent ones.
-                    layer.clear_tiles.push(occlusion::Item { rectangle: rect, key: OcclusionItemKey { tile_index: idx, needs_mask: false } });
+                None => {
+                    layer.occlusion.add(&rect, is_opaque, OcclusionItemKey {
+                        tile_index: idx,
+                        needs_mask: false,
+                    });
                 }
             }
         }
@@ -4274,6 +4287,8 @@ impl Renderer {
                     transform,
                     layer.clip_rect,
                     ImageRendering::Auto,
+                    layer.rounded_clip_rect,
+                    layer.rounded_clip_radii,
                 );
             }
         }
@@ -4408,6 +4423,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
             self.draw_instanced_batch(
                 &clear_instances,
@@ -4428,6 +4444,15 @@ impl Renderer {
         let needs_depth = target.needs_depth();
 
         let texture = self.texture_resolver.get_cache_texture_mut(&texture_id);
+
+        if let Some(history) = &mut self.command_log {
+            let label = match target.target_kind {
+                RenderTargetKind::Color => "color",
+                RenderTargetKind::Alpha => "alpha",
+            };
+            history.begin_render_target(label, texture.get_dimensions());
+        }
+
         if needs_depth {
             self.device.reuse_render_target::<u8>(
                 texture,
@@ -4540,6 +4565,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.draw_instanced_batch(
@@ -4557,6 +4583,7 @@ impl Renderer {
                     None,
                     &mut self.renderer_errors,
                     &mut self.profile,
+                    &mut self.command_log,
                 );
 
                 self.draw_instanced_batch(
@@ -4583,6 +4610,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
             self.draw_instanced_batch(
@@ -4607,6 +4635,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
             self.draw_instanced_batch(
@@ -4629,6 +4658,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
             if let Some(ref texture) = self.dither_matrix_texture {
@@ -4655,6 +4685,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
             if let Some(ref texture) = self.dither_matrix_texture {
@@ -4681,6 +4712,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
 
             if let Some(ref texture) = self.dither_matrix_texture {
@@ -4705,8 +4737,14 @@ impl Renderer {
             let _timer = self.gpu_profiler.start_timer(GPU_TAG_BLUR);
 
             self.set_blend(false, framebuffer_kind);
-            self.shaders.borrow_mut().cs_blur_rgba8()
-                .bind(&mut self.device, &projection, None, &mut self.renderer_errors, &mut self.profile);
+            self.shaders.borrow_mut().cs_blur_rgba8().bind(
+                &mut self.device,
+                &projection,
+                None,
+                &mut self.renderer_errors,
+                &mut self.profile,
+                &mut self.command_log,
+            );
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_blurs(
@@ -4728,15 +4766,6 @@ impl Renderer {
             &projection,
             stats,
         );
-
-        for (ref textures, ref filters) in &target.svg_filters {
-            self.handle_svg_filters(
-                textures,
-                filters,
-                &projection,
-                stats,
-            );
-        }
 
         for (ref textures, ref filters) in &target.svg_nodes {
             self.handle_svg_nodes(textures, filters, &projection, stats);
@@ -4856,6 +4885,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
             self.draw_instanced_batch(
                 &list.slow_rectangles,
@@ -4872,6 +4902,7 @@ impl Renderer {
                 None,
                 &mut self.renderer_errors,
                 &mut self.profile,
+                &mut self.command_log,
             );
             self.draw_instanced_batch(
                 &list.fast_rectangles,
@@ -4885,8 +4916,14 @@ impl Renderer {
         for (mask_texture_id, items) in list.box_shadows.iter() {
             let _gm2 = self.gpu_profiler.start_marker("box-shadows");
             let textures = BatchTextures::composite_rgb(*mask_texture_id);
-            self.shaders.borrow_mut().cs_clip_box_shadow()
-                .bind(&mut self.device, projection, None, &mut self.renderer_errors, &mut self.profile);
+            self.shaders.borrow_mut().cs_clip_box_shadow().bind(
+                &mut self.device,
+                projection,
+                None,
+                &mut self.renderer_errors,
+                &mut self.profile,
+                &mut self.command_log,
+            );
             self.draw_instanced_batch(
                 items,
                 VertexArrayKind::ClipBoxShadow,
@@ -4965,7 +5002,7 @@ impl Renderer {
                 .external_images
                 .insert(DeferredResolveIndex(i as u32), texture);
 
-            let addr = deferred_resolve.address;
+            let addr = gpu_buffer.resolve_handle(deferred_resolve.handle);
             let index = addr.as_u32() as usize;
             gpu_buffer.data[index] = image.uv.to_array().into();
             gpu_buffer.data[index + 1] = [0f32; 4].into();
@@ -5047,9 +5084,6 @@ impl Renderer {
                 // Work out how many dirty rects WR produced, and if that's more than
                 // what the device supports.
                 for tile in &composite_state.tiles {
-                    if tile.kind == TileKind::Clear {
-                        continue;
-                    }
                     let dirty_rect = composite_state.get_device_rect(
                         &tile.local_dirty_rect,
                         tile.transform_index,
@@ -5345,9 +5379,6 @@ impl Renderer {
             // Invalidate any native surface tiles that might be updated by passes.
             if !frame.has_been_rendered {
                 for tile in &frame.composite_state.tiles {
-                    if tile.kind == TileKind::Clear {
-                        continue;
-                    }
                     if !tile.local_dirty_rect.is_empty() {
                         if let CompositeTileSurface::Texture { surface: ResolvedSurfaceTexture::Native { id, .. } } = tile.surface {
                             let valid_rect = frame.composite_state.get_surface_rect(
@@ -5542,8 +5573,11 @@ impl Renderer {
         present_mode: Option<PartialPresentMode>,
     ) {
         profile_scope!("main target");
-
         if let Some(device_size) = device_size {
+            if let Some(history) = &mut self.command_log {
+                history.begin_render_target("Window", device_size);
+            }
+
             results.stats.color_target_count += 1;
             results.picture_cache_debug = mem::replace(
                 &mut frame.composite_state.picture_cache_debug,

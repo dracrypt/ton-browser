@@ -22,6 +22,7 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
     ["generic-error", () => this.genericErrorTemplate()],
 
     ["info", () => this.infoMessageTemplate()],
+    ["warning", () => this.warningMessageTemplate()],
   ]);
   DISMISS_EVENT = "ipprotection-message-bar:user-dismissed";
 
@@ -49,6 +50,13 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+
+    if (this.mozMessageBarEl) {
+      this.mozMessageBarEl.removeEventListener(
+        "message-bar:user-dismissed",
+        this.handleDismiss
+      );
+    }
   }
 
   handleDismiss() {
@@ -87,6 +95,17 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
     `;
   }
 
+  warningMessageTemplate() {
+    return html`
+      <moz-message-bar
+        type="warning"
+        data-l10n-id=${ifDefined(this.messageId)}
+        dismissable
+      >
+      </moz-message-bar>
+    `;
+  }
+
   firstUpdated() {
     this.mozMessageBarEl.addEventListener(
       "message-bar:user-dismissed",
@@ -115,13 +134,7 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
       return null;
     }
 
-    return html`
-      <link
-        rel="stylesheet"
-        href="chrome://browser/content/ipprotection/ipprotection-header.css"
-      />
-      ${messageBarTemplate}
-    `;
+    return html` ${messageBarTemplate} `;
   }
 }
 

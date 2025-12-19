@@ -2527,7 +2527,7 @@ void nsINode::RemoveChildNode(nsIContent* aKid, bool aNotify,
 
   // Invalidate cached array of child nodes
   InvalidateChildNodes();
-  aKid->UnbindFromTree(aNewParent);
+  aKid->UnbindFromTree(aNewParent, aState);
 }
 
 // When replacing, aRefChild is the content being replaced; when
@@ -3554,7 +3554,7 @@ Element* nsINode::GetParentFlexElement() {
 
 Element* nsINode::GetNearestInclusiveOpenPopover() const {
   for (auto* el : InclusiveFlatTreeAncestorsOfType<Element>()) {
-    if (el->IsAutoPopover() && el->IsPopoverOpen()) {
+    if (el->IsPopoverOpenedInMode(PopoverAttributeState::Auto)) {
       return el;
     }
   }
@@ -3564,12 +3564,12 @@ Element* nsINode::GetNearestInclusiveOpenPopover() const {
 Element* nsINode::GetNearestInclusiveTargetPopoverForInvoker() const {
   for (auto* el : InclusiveFlatTreeAncestorsOfType<Element>()) {
     if (auto* popover = el->GetEffectiveCommandForElement()) {
-      if (popover->IsAutoPopover() && popover->IsPopoverOpen()) {
+      if (popover->IsPopoverOpenedInMode(PopoverAttributeState::Auto)) {
         return popover;
       }
     }
     if (auto* popover = el->GetEffectivePopoverTargetElement()) {
-      if (popover->IsAutoPopover() && popover->IsPopoverOpen()) {
+      if (popover->IsPopoverOpenedInMode(PopoverAttributeState::Auto)) {
         return popover;
       }
     }
@@ -3622,7 +3622,8 @@ Element* nsINode::GetTopmostClickedPopover() const {
   if (!clickedPopover) {
     return invokedPopover;
   }
-  auto autoPopoverList = clickedPopover->OwnerDoc()->AutoPopoverList();
+  auto autoPopoverList =
+      clickedPopover->OwnerDoc()->PopoverListOf(PopoverAttributeState::Auto);
   for (Element* el : Reversed(autoPopoverList)) {
     if (el == clickedPopover || el == invokedPopover) {
       return el;

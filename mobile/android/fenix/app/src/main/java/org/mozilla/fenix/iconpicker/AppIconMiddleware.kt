@@ -4,22 +4,20 @@
 
 package org.mozilla.fenix.iconpicker
 
-import androidx.annotation.VisibleForTesting
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
 
 /**
  * A middleware for handling side-effects in response to [AppIconAction]s.
  *
- * @property updateAppIcon A interface that updates the main activity alias with the newly selected one.
+ * @param updateAppIcon A interface that updates the main activity alias with the newly selected one.
  */
 class AppIconMiddleware(
-    @get:VisibleForTesting
-    internal var updateAppIcon: AppIconUpdater,
+    private val updateAppIcon: AppIconUpdater,
 ) : Middleware<AppIconState, AppIconAction> {
 
     override fun invoke(
-        context: MiddlewareContext<AppIconState, AppIconAction>,
+        store: Store<AppIconState, AppIconAction>,
         next: (AppIconAction) -> Unit,
         action: AppIconAction,
     ) {
@@ -28,14 +26,15 @@ class AppIconMiddleware(
         when (action) {
             is UserAction.Confirmed -> {
                 if (updateAppIcon(old = action.newIcon, new = action.oldIcon)) {
-                    context.dispatch(SystemAction.Applied(action.newIcon))
+                    store.dispatch(SystemAction.Applied(action.newIcon))
                 } else {
-                    context.dispatch(SystemAction.UpdateFailed)
+                    store.dispatch(
+                        SystemAction.UpdateFailed(
+                            oldIcon = action.oldIcon,
+                            newIcon = action.newIcon,
+                        ),
+                    )
                 }
-            }
-
-            is SystemAction.EnvironmentRehydrated -> {
-                updateAppIcon = action.appIconUpdater
             }
 
             is UserAction.Dismissed,
@@ -43,8 +42,8 @@ class AppIconMiddleware(
             is SystemAction.Applied,
             is SystemAction.DialogDismissed,
             is SystemAction.SnackbarDismissed,
+            is SystemAction.SnackbarShown,
             is SystemAction.UpdateFailed,
-
                 -> {
                 // no-op
             }

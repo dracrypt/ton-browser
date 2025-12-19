@@ -5,7 +5,6 @@
 package org.mozilla.fenix.iconpicker
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import mozilla.components.support.test.ext.joinBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,7 +43,7 @@ class AppIconMiddlewareTest {
     fun `WHEN updateAppIcon call is successful THEN the middleware dispatches the Applied system action to the store`() {
         val currentIcon = AppIcon.AppDefault
         val newIcon = AppIcon.AppRetro2004
-        val middleware = AppIconMiddleware { newIcon, currentIcon -> true }
+        val middleware = AppIconMiddleware { _, _ -> true }
         val result = mutableListOf<AppIconAction>()
         val store = AppIconStore(
             initialState = AppIconState(
@@ -69,7 +68,7 @@ class AppIconMiddlewareTest {
     fun `WHEN updateAppIcon call returns with an a failure THEN the middleware dispatches the UpdateFailed system action to the store`() {
         val currentIcon = AppIcon.AppDefault
         val newIcon = AppIcon.AppRetro2004
-        val middleware = AppIconMiddleware { newIcon, currentIcon -> false }
+        val middleware = AppIconMiddleware { _, _ -> false }
         val result = mutableListOf<AppIconAction>()
         val store = AppIconStore(
             initialState = AppIconState(
@@ -87,24 +86,6 @@ class AppIconMiddlewareTest {
         val confirmAction = UserAction.Confirmed(newIcon = newIcon, oldIcon = currentIcon)
         store.dispatch(confirmAction)
 
-        assertEquals(listOf(confirmAction, SystemAction.UpdateFailed), result)
-    }
-
-    @Test
-    fun `GIVEN EnvironmentRehydrated system action WHEN middleware is called THEN the new app icon updater replaces the old one`() {
-        val initialUpdater = AppIconUpdater { _, _ -> false }
-        val middleware = AppIconMiddleware(initialUpdater)
-        val store = AppIconStore(
-            initialState = AppIconState(),
-            reducer = { state, _ ->
-                state
-            },
-            middleware = listOf(middleware),
-        )
-        val newUpdater = AppIconUpdater { _, _ -> false }
-
-        store.dispatch(SystemAction.EnvironmentRehydrated(newUpdater))
-
-        assertEquals(newUpdater, middleware.updateAppIcon)
+        assertEquals(listOf(confirmAction, SystemAction.UpdateFailed(oldIcon = currentIcon, newIcon = newIcon)), result)
     }
 }

@@ -17,14 +17,15 @@ use crate::image_tiling::{self, Repetition};
 use crate::border::{get_max_scale_for_border, build_border_instances};
 use crate::clip::{ClipStore, ClipNodeRange};
 use crate::pattern::Pattern;
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferWriterF};
+use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferWriterF, GpuBufferDataF};
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::clip::{ClipDataStore, ClipNodeFlags, ClipChainInstance, ClipItemKind};
 use crate::frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
-use crate::gpu_types::BrushFlags;
+use crate::gpu_types::{BrushFlags, LinearGradientBrushData};
 use crate::internal_types::{FastHashMap, PlaneSplitAnchor, Filter};
-use crate::picture::{ClusterFlags, PictureCompositeMode, PicturePrimitive, SliceId};
-use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, TileCacheInstance, SubpixelMode, Picture3DContext};
+use crate::picture::{ClusterFlags, PictureCompositeMode, PicturePrimitive};
+use crate::picture::{PrimitiveList, PrimitiveCluster, SurfaceIndex, SubpixelMode, Picture3DContext};
+use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::prim_store::line_dec::MAX_LINE_DECORATION_RESOLUTION;
 use crate::prim_store::*;
 use crate::quad;
@@ -35,7 +36,7 @@ use crate::render_task_cache::RenderTaskCacheKeyKind;
 use crate::render_task_cache::{RenderTaskCacheKey, to_cache_size, RenderTaskParent};
 use crate::render_task::{EmptyTask, MaskSubPass, RenderTask, RenderTaskKind, SubPass};
 use crate::segment::SegmentBuilder;
-use crate::util::{clamp_to_scale_factor, pack_as_float, ScaleOffset};
+use crate::util::{clamp_to_scale_factor, ScaleOffset};
 use crate::visibility::{compute_conservative_visible_rect, PrimitiveVisibility, VisibilityState};
 
 
@@ -262,7 +263,7 @@ fn prepare_prim_for_render(
                     || may_need_repetition(prim_data.stretch_size, prim_data.common.prim_rect)
             }
             // TODO(bug 1899546) Enable quad conic gradients with SWGL.
-            PrimitiveInstanceKind::ConicGradient { data_handle, .. } if !frame_context.fb_config.is_software => {
+            PrimitiveInstanceKind::ConicGradient { data_handle, .. } => {
                 let prim_data = &data_stores.conic_grad[*data_handle];
                 !prim_data.brush_segments.is_empty()
                     || may_need_repetition(prim_data.stretch_size, prim_data.common.prim_rect)
@@ -364,6 +365,7 @@ fn prepare_interned_prim_for_render(
                 prim_data,
                 &prim_data.kind.outer_shadow_rect,
                 prim_instance_index,
+                &None,
                 prim_spatial_node_index,
                 &prim_instance.vis.clip_chain,
                 device_pixel_scale,
@@ -527,16 +529,6 @@ fn prepare_interned_prim_for_render(
 
             prim_data.update(frame_state);
         }
-        PrimitiveInstanceKind::Clear { data_handle, .. } => {
-            profile_scope!("Clear");
-            let prim_data = &mut data_stores.prim[*data_handle];
-
-            prim_data.common.may_need_repetition = false;
-
-            // Update the template this instane references, which may refresh the GPU
-            // cache with any shared template data.
-            prim_data.update(frame_state, frame_context.scene_properties);
-        }
         PrimitiveInstanceKind::NormalBorder { data_handle, ref mut render_task_ids, .. } => {
             profile_scope!("NormalBorder");
             let prim_data = &mut data_stores.normal_border[*data_handle];
@@ -666,6 +658,7 @@ fn prepare_interned_prim_for_render(
                     prim_data,
                     &prim_data.common.prim_rect,
                     prim_instance_index,
+                    &None,
                     prim_spatial_node_index,
                     &prim_instance.vis.clip_chain,
                     device_pixel_scale,
@@ -746,6 +739,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.stretch_size,
                     prim_data.tile_spacing,
                     prim_instance_index,
+                    &None,
                     prim_spatial_node_index,
                     &prim_instance.vis.clip_chain,
                     device_pixel_scale,
@@ -786,20 +780,13 @@ fn prepare_interned_prim_for_render(
                     &mut scratch.gradient_tiles,
                     &frame_context.spatial_tree,
                     Some(&mut |_, gpu_buffer| {
-                        let mut writer = gpu_buffer.write_blocks(2);
-                        writer.push_one([
-                            prim_data.start_point.x,
-                            prim_data.start_point.y,
-                            prim_data.end_point.x,
-                            prim_data.end_point.y,
-                        ]);
-                        writer.push_one([
-                            pack_as_float(prim_data.extend_mode as u32),
-                            prim_data.stretch_size.width,
-                            prim_data.stretch_size.height,
-                            0.0,
-                        ]);
-
+                        let mut writer = gpu_buffer.write_blocks(LinearGradientBrushData::NUM_BLOCKS);
+                        writer.push(&LinearGradientBrushData {
+                            start: prim_data.start_point,
+                            end: prim_data.end_point,
+                            extend_mode: prim_data.extend_mode,
+                            stretch_size: prim_data.stretch_size,
+                        });
                         writer.finish()
                     }),
                 );
@@ -865,6 +852,7 @@ fn prepare_interned_prim_for_render(
                     prim_data.stretch_size,
                     prim_data.tile_spacing,
                     prim_instance_index,
+                    &None,
                     prim_spatial_node_index,
                     &prim_instance.vis.clip_chain,
                     device_pixel_scale,
@@ -912,12 +900,46 @@ fn prepare_interned_prim_for_render(
             let prim_data = &mut data_stores.conic_grad[*data_handle];
 
             if !*use_legacy_path {
+                // Conic gradients are quite slow with SWGL, so we want to cache
+                // them as much as we can, even large ones.
+                // TODO: get_surface_rect is not always cheap. We should reorganize
+                // the code so that we only call it as much as we really need it,
+                // while avoiding this much boilerplate for each primitive that uses
+                // caching.
+                let mut should_cache = frame_context.fb_config.is_software;
+                if should_cache {
+                    let surface = &frame_state.surfaces[pic_context.surface_index.0];
+                    let clipped_surface_rect = surface.get_surface_rect(
+                        &prim_instance.vis.clip_chain.pic_coverage_rect,
+                        frame_context.spatial_tree,
+                    );
+
+                    should_cache = if let Some(rect) = clipped_surface_rect {
+                        rect.width() < 4096 && rect.height() < 4096
+                    } else {
+                        false
+                    };
+                }
+
+                let cache_key = if should_cache {
+                    quad::cache_key(
+                        data_handle.uid(),
+                        prim_spatial_node_index,
+                        &prim_instance.vis.clip_chain,
+                        frame_state.clip_store,
+                        &data_stores.clip,
+                    )
+                } else {
+                    None
+                };
+
                 quad::prepare_repeatable_quad(
                     prim_data,
                     &prim_data.common.prim_rect,
                     prim_data.stretch_size,
                     prim_data.tile_spacing,
                     prim_instance_index,
+                    &cache_key,
                     prim_spatial_node_index,
                     &prim_instance.vis.clip_chain,
                     device_pixel_scale,
@@ -1006,7 +1028,7 @@ fn prepare_interned_prim_for_render(
                 }
 
                 let pic_surface_index = pic.raster_config.as_ref().unwrap().surface_index;
-                let prim_local_rect = frame_state
+                let prim_local_rect: LayoutRect = frame_state
                     .surfaces[pic_surface_index.0]
                     .clipped_local_rect
                     .cast_unit();
@@ -1015,8 +1037,8 @@ fn prepare_interned_prim_for_render(
 
                 let prim_address_f = quad::write_prim_blocks(
                     &mut frame_state.frame_gpu_data.f32,
-                    prim_local_rect,
-                    prim_instance.vis.clip_chain.local_clip_rect,
+                    prim_local_rect.to_untyped(),
+                    prim_instance.vis.clip_chain.local_clip_rect.to_untyped(),
                     pattern.base_color,
                     pattern.texture_input.task_id,
                     &[],
@@ -1135,31 +1157,29 @@ fn prepare_interned_prim_for_render(
                 }
             }
 
-            if pic.prepare_for_render(
+            pic.write_gpu_blocks(
                 frame_state,
                 data_stores,
-            ) {
-                if let Picture3DContext::In { root_data: None, plane_splitter_index, .. } = pic.context_3d {
-                    let dirty_rect = frame_state.current_dirty_region().combined;
-                    let visibility_node = frame_state.current_dirty_region().visibility_spatial_node;
-                    let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
-                    let surface_index = pic.raster_config.as_ref().unwrap().surface_index;
-                    let surface = &frame_state.surfaces[surface_index.0];
-                    let local_prim_rect = surface.clipped_local_rect.cast_unit();
+            );
 
-                    PicturePrimitive::add_split_plane(
-                        splitter,
-                        frame_context.spatial_tree,
-                        prim_spatial_node_index,
-                        visibility_node,
-                        local_prim_rect,
-                        &prim_instance.vis.clip_chain.local_clip_rect,
-                        dirty_rect,
-                        plane_split_anchor,
-                    );
-                }
-            } else {
-                prim_instance.clear_visibility();
+            if let Picture3DContext::In { root_data: None, plane_splitter_index, .. } = pic.context_3d {
+                let dirty_rect = frame_state.current_dirty_region().combined;
+                let visibility_node = frame_state.current_dirty_region().visibility_spatial_node;
+                let splitter = &mut frame_state.plane_splitters[plane_splitter_index.0];
+                let surface_index = pic.raster_config.as_ref().unwrap().surface_index;
+                let surface = &frame_state.surfaces[surface_index.0];
+                let local_prim_rect = surface.clipped_local_rect.cast_unit();
+
+                PicturePrimitive::add_split_plane(
+                    splitter,
+                    frame_context.spatial_tree,
+                    prim_spatial_node_index,
+                    visibility_node,
+                    local_prim_rect,
+                    &prim_instance.vis.clip_chain.local_clip_rect,
+                    dirty_rect,
+                    plane_split_anchor,
+                );
             }
         }
         PrimitiveInstanceKind::BackdropCapture { .. } => {
@@ -1228,8 +1248,7 @@ fn write_segment<F>(
         f(&mut writer);
 
         for segment in segments {
-            writer.push_one(segment.local_rect);
-            writer.push_one([0.0; 4]);
+            segment.write_gpu_blocks(&mut writer);
         }
 
         segment_instance.gpu_data = writer.finish();
@@ -1317,7 +1336,6 @@ fn update_clip_task_for_brush(
         }
         PrimitiveInstanceKind::Picture { .. } |
         PrimitiveInstanceKind::TextRun { .. } |
-        PrimitiveInstanceKind::Clear { .. } |
         PrimitiveInstanceKind::LineDecoration { .. } |
         PrimitiveInstanceKind::BackdropCapture { .. } |
         PrimitiveInstanceKind::BackdropRender { .. } => {
@@ -1775,7 +1793,6 @@ fn build_segments_if_needed(
         PrimitiveInstanceKind::TextRun { .. } |
         PrimitiveInstanceKind::NormalBorder { .. } |
         PrimitiveInstanceKind::ImageBorder { .. } |
-        PrimitiveInstanceKind::Clear { .. } |
         PrimitiveInstanceKind::LinearGradient { .. } |
         PrimitiveInstanceKind::CachedLinearGradient { .. } |
         PrimitiveInstanceKind::RadialGradient { .. } |

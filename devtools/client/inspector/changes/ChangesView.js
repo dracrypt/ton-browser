@@ -78,7 +78,7 @@ class ChangesView {
   }
 
   get resourceCommand() {
-    return this.inspector.toolbox.resourceCommand;
+    return this.inspector.commands.resourceCommand;
   }
 
   init() {
@@ -160,9 +160,9 @@ class ChangesView {
    * - if neither rule id nor source id are provided, copy the changes too all rules
    * within all sources.
    *
-   * @param {String|null} ruleId
+   * @param {string | null} ruleId
    *        Optional rule id.
-   * @param {String|null} sourceId
+   * @param {string | null} sourceId
    *        Optional source id.
    */
   copyChanges(ruleId, sourceId) {
@@ -204,7 +204,7 @@ class ChangesView {
    * Gets the full content of the target CSS rule (including any changes applied)
    * and copies it to the clipboard.
    *
-   * @param {String} ruleId
+   * @param {string} ruleId
    *        Rule id of the target CSS rule.
    */
   async copyRule(ruleId) {

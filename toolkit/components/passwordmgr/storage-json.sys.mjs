@@ -447,6 +447,12 @@ export class LoginManagerStorage_json {
     ]);
   }
 
+  async modifyLoginAsync(oldLogin, newLoginData, fromSync) {
+    let result = this.modifyLogin(oldLogin, newLoginData, fromSync);
+    // Emulate being async:
+    return Promise.resolve(result);
+  }
+
   // Replace the login with a tombstone. It has a guid and sync-related properties,
   // but does not contain the login or password information.
   #replaceLoginWithTombstone(login) {
@@ -750,9 +756,9 @@ export class LoginManagerStorage_json {
   /**
    * Checks if the given login item matches the specified matchData.
    *
-   * @param {Object} aLoginItem The login item to check.
-   * @param {Object} aMatchData The match data to compare against. keyed by
-   * @param {Object} [aOptions] Additional options for matching
+   * @param {object} aLoginItem The login item to check.
+   * @param {object} aMatchData The match data to compare against. keyed by
+   * @param {object} [aOptions] Additional options for matching
    *
    * @returns {boolean} - Returns true if the login item matches the match data,
    */

@@ -73,24 +73,24 @@ SVGPathSegment::SVGPathSegment(SVGPathElement* aSVGPathElement,
       AppendControlPoint(aCommand.quad_curve.control1);
       AppendEndPoint(aCommand.quad_curve.point);
       break;
-    case StylePathCommand::Tag::Arc:
+    case StylePathCommand::Tag::Arc: {
       mCommand.AssignLiteral(aCommand.arc.point.IsToPosition() ? "A" : "a");
-      mValues.AppendElement(aCommand.arc.radii.x);
-      mValues.AppendElement(aCommand.arc.radii.y);
+      const auto r = aCommand.arc.radii.ToGfxPoint();
+      mValues.AppendElement(r.x);
+      mValues.AppendElement(r.y);
       mValues.AppendElement(aCommand.arc.rotate);
       mValues.AppendElement(aCommand.arc.arc_size == StyleArcSize::Large);
       mValues.AppendElement(aCommand.arc.arc_sweep == StyleArcSweep::Cw);
       AppendEndPoint(aCommand.arc.point);
       break;
+    }
     case StylePathCommand::Tag::HLine:
-      mCommand.AssignLiteral(aCommand.h_line.by_to == StyleByTo::To ? "H"
-                                                                    : "h");
-      mValues.AppendElement(aCommand.h_line.x);
+      mCommand.AssignLiteral(aCommand.h_line.x.IsToPosition() ? "H" : "h");
+      mValues.AppendElement(aCommand.h_line.x.ToGfxCoord());
       break;
     case StylePathCommand::Tag::VLine:
-      mCommand.AssignLiteral(aCommand.v_line.by_to == StyleByTo::To ? "V"
-                                                                    : "v");
-      mValues.AppendElement(aCommand.v_line.y);
+      mCommand.AssignLiteral(aCommand.v_line.y.IsToPosition() ? "V" : "v");
+      mValues.AppendElement(aCommand.v_line.y.ToGfxCoord());
       break;
     case StylePathCommand::Tag::SmoothCubic:
       mCommand.AssignLiteral(aCommand.smooth_cubic.point.IsToPosition() ? "S"

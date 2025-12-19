@@ -249,6 +249,12 @@ class nsLayoutUtils {
   static void NotifyPaintSkipTransaction(ViewID aScrollId);
 
   /**
+   * Similar to above NotifyPaintSkipTransaction, but scroll offset is being
+   * sent to APZ in a full transaction.
+   */
+  static void NotifyApzTransaction(ViewID aScrollId);
+
+  /**
    * Use heuristics to figure out the child list that
    * aChildFrame is currently in.
    */
@@ -286,6 +292,12 @@ class nsLayoutUtils {
    * aContent, if any.
    */
   static nsIFrame* GetMarkerFrame(const nsIContent* aContent);
+
+  /**
+   * Returns the ::backdrop pseudo-element for aContent, if any.
+   */
+  static mozilla::dom::Element* GetBackdropPseudo(const nsIContent* aContent);
+  static nsIFrame* GetBackdropFrame(const nsIContent* aContent);
 
 #ifdef ACCESSIBILITY
   /**
@@ -466,6 +478,17 @@ class nsLayoutUtils {
   static bool IsProperAncestorFrame(const nsIFrame* aAncestorFrame,
                                     const nsIFrame* aFrame,
                                     const nsIFrame* aCommonAncestor = nullptr);
+
+  /**
+   * IsProperAncestorFrameConsideringContinuations checks whether aAncestorFrame
+   * or a continuation of it is an ancestor of aFrame and not equal to aFrame.
+   * @param aCommonAncestor nullptr, or a common ancestor of aFrame and
+   * aAncestorFrame. If non-null, this can bound the search and speed up
+   * the function
+   */
+  static bool IsProperAncestorFrameConsideringContinuations(
+      const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+      const nsIFrame* aCommonAncestor = nullptr);
 
   /**
    * Like IsProperAncestorFrame, but looks across document boundaries.
@@ -2873,6 +2896,11 @@ class nsLayoutUtils {
   static FrameMetrics CalculateBasicFrameMetrics(
       mozilla::ScrollContainerFrame* aScrollContainerFrame);
 
+  /**
+   * Follows the async scrollable ancestor chain of scroll frames to find
+   * scroll frames that WantAsyncScroll(). This is used when activating scroll
+   * frames and finding APZCs.
+   */
   static mozilla::ScrollContainerFrame* GetAsyncScrollableAncestorFrame(
       nsIFrame* aTarget);
 
@@ -3034,7 +3062,7 @@ class nsLayoutUtils {
    *   assigned to first frame on the next line if such a next line exists, null
    *   otherwise.
    */
-  static bool IsInvisibleBreak(nsINode* aNode,
+  static bool IsInvisibleBreak(const nsINode* aNode,
                                nsIFrame** aNextLineFrame = nullptr);
 
   static nsRect ComputeSVGOriginBox(mozilla::dom::SVGViewportElement*);

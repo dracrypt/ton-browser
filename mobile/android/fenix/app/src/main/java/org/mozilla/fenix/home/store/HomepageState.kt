@@ -29,6 +29,7 @@ import org.mozilla.fenix.home.recentvisits.RecentlyVisitedItem
 import org.mozilla.fenix.home.topsites.TopSiteColors
 import org.mozilla.fenix.home.ui.getAttr
 import org.mozilla.fenix.search.SearchDialogFragment
+import org.mozilla.fenix.termsofuse.store.PrivacyNoticeBannerState
 import org.mozilla.fenix.utils.Settings
 
 /**
@@ -57,18 +58,17 @@ internal sealed class HomepageState {
      * @property headerState State related to the header of the homepage.
      * @property firstFrameDrawn Flag indicating whether the first frame of the homescreen has been drawn.
      * @property isSearchInProgress Whether search is currently active on the homepage.
-     * @property privateModeRedesignEnabled Whether private browsing mode redesign is enabled.
      */
     internal data class Private(
         override val headerState: HeaderState,
         override val firstFrameDrawn: Boolean = false,
         override val isSearchInProgress: Boolean,
-        val privateModeRedesignEnabled: Boolean,
     ) : HomepageState()
 
     /**
      * State corresponding with the homepage in normal browsing mode.
      *
+     * @property shouldShowPrivacyNoticeBanner If the privacy notice banner should show.
      * @property nimbusMessage Optional message to display.
      * @property topSites List of [TopSite] to display.
      * @property recentTabs List of [RecentTab] to display.
@@ -97,6 +97,7 @@ internal sealed class HomepageState {
      * @property bottomPadding Amount of padding to display at the bottom of the homepage.
      */
     internal data class Normal(
+        val shouldShowPrivacyNoticeBanner: Boolean,
         val nimbusMessage: NimbusMessageState?,
         val topSites: List<TopSite>,
         val recentTabs: List<RecentTab>,
@@ -138,8 +139,7 @@ internal sealed class HomepageState {
      */
     internal fun isMinimalLayout(): Boolean {
         return (this as? Normal)?.run {
-            !showRecentTabs && !showRecentSyncedTab && !showBookmarks && !showRecentlyVisited &&
-                    (!showCollections || collectionsState == CollectionsState.Gone) && !headerState.showHeader
+            !showRecentTabs && !showRecentSyncedTab && !showBookmarks && !showRecentlyVisited
         } ?: false
     }
 
@@ -151,28 +151,29 @@ internal sealed class HomepageState {
          * Builds a new [HomepageState] from the current [AppState] and [Settings].
          *
          * @param appState State to build the [HomepageState] from.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
          * @param browsingModeManager Manager holding current state of whether the browser is in private mode or not.
          * @param settings [Settings] corresponding to how the homepage should be displayed.
          */
         @Composable
         internal fun build(
             appState: AppState,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
             browsingModeManager: BrowsingModeManager,
             settings: Settings,
         ): HomepageState {
-            return with(appState) {
-                if (browsingModeManager.mode.isPrivate) {
-                    buildPrivateState(
-                        appState = appState,
-                        settings = settings,
-                    )
-                } else {
-                    buildNormalState(
-                        appState = appState,
-                        browsingModeManager = browsingModeManager,
-                        settings = settings,
-                    )
-                }
+            return if (browsingModeManager.mode.isPrivate) {
+                buildPrivateState(
+                    appState = appState,
+                    settings = settings,
+                )
+            } else {
+                buildNormalState(
+                    appState = appState,
+                    privacyNoticeBannerState = privacyNoticeBannerState,
+                    browsingModeManager = browsingModeManager,
+                    settings = settings,
+                )
             }
         }
 
@@ -190,7 +191,7 @@ internal sealed class HomepageState {
             Private(
                 headerState = HeaderState(
                     showHeader = settings.showHomepageHeader,
-                    wordmarkColor = null,
+                    wordmarkTextColor = null,
                     privateBrowsingButtonColor = colorResource(
                         getAttr(
                             R.attr.mozac_ic_private_mode_circle_fill_icon_color,
@@ -199,7 +200,6 @@ internal sealed class HomepageState {
                 ),
                 firstFrameDrawn = firstFrameDrawn,
                 isSearchInProgress = searchState.isSearchActive,
-                privateModeRedesignEnabled = settings.enablePrivateBrowsingModeRedesign,
             )
         }
 
@@ -207,17 +207,20 @@ internal sealed class HomepageState {
          * Builds a new [HomepageState.Normal] from the current [AppState] and [Settings].
          *
          * @param appState State to build the [HomepageState.Normal] from.
+         * @param privacyNoticeBannerState State of the privacy notice banner.
          * @param browsingModeManager Manager holding current state of whether the browser is in private mode or not.
          * @param settings [Settings] corresponding to how the homepage should be displayed.
          */
         @Composable
         private fun buildNormalState(
             appState: AppState,
+            privacyNoticeBannerState: PrivacyNoticeBannerState,
             browsingModeManager: BrowsingModeManager,
             settings: Settings,
         ) = with(appState) {
             Normal(
-                nimbusMessage = NimbusMessageState.build(appState),
+                shouldShowPrivacyNoticeBanner = privacyNoticeBannerState.visible,
+                nimbusMessage = NimbusMessageState.build(appState, privacyNoticeBannerState),
                 topSites = topSites,
                 recentTabs = recentTabs,
                 syncedTab = when (recentSyncedTabState) {
@@ -245,7 +248,7 @@ internal sealed class HomepageState {
                 showCollections = settings.collections,
                 headerState = HeaderState(
                     showHeader = settings.showHomepageHeader,
-                    wordmarkColor = wallpaperState.currentWallpaper.textColor?.let { Color(it) },
+                    wordmarkTextColor = wallpaperState.currentWallpaper.textColor?.let { Color(it) },
                     privateBrowsingButtonColor = wallpaperState.currentWallpaper.textColor
                         ?.let { Color(it) } ?: colorResource(
                         getAttr(
@@ -278,12 +281,12 @@ internal sealed class HomepageState {
  * A simple wrapper around state required for the homepage header.
  *
  * @property showHeader whether the header should be shown
- * @property wordmarkColor an optional color for the wordmark text and logo
+ * @property wordmarkTextColor an optional color for the wordmark text
  * @property privateBrowsingButtonColor the color to use for the private browsing button
  */
 internal data class HeaderState(
     val showHeader: Boolean,
-    val wordmarkColor: Color?,
+    val wordmarkTextColor: Color?,
     val privateBrowsingButtonColor: Color,
 )
 

@@ -13,10 +13,11 @@ use crate::spatial_node::SpatialNodeType;
 use crate::spatial_tree::{SpatialTree, SpatialNodeIndex};
 use crate::composite::{CompositorKind, CompositeState, CompositeStatePreallocator};
 use crate::debug_item::DebugItem;
-use crate::gpu_types::{PrimitiveHeaders, TransformPalette, ZBufferIdGenerator};
+use crate::gpu_types::{ImageBrushPrimitiveData, PrimitiveHeaders, TransformPalette, ZBufferIdGenerator};
 use crate::gpu_types::{QuadSegment, TransformData};
 use crate::internal_types::{FastHashMap, PlaneSplitter, FrameStamp};
-use crate::picture::{DirtyRegion, SliceId, TileCacheInstance};
+use crate::invalidation::DirtyRegion;
+use crate::tile_cache::{SliceId, TileCacheInstance};
 use crate::picture::{SurfaceInfo, SurfaceIndex, ResolvedSurfaceTexture};
 use crate::picture::{SubpixelMode, RasterConfig, PictureCompositeMode};
 use crate::prepare::prepare_picture;
@@ -24,7 +25,7 @@ use crate::prim_store::{PictureIndex, PrimitiveScratchBuffer};
 use crate::prim_store::{DeferredResolve, PrimitiveInstance};
 use crate::profiler::{self, TransactionProfile};
 use crate::render_backend::{DataStores, ScratchBuffer};
-use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI};
+use crate::renderer::{GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF, GpuBufferBuilderI, GpuBufferF, GpuBufferI, GpuBufferDataF};
 use crate::render_target::{PictureCacheTarget, PictureCacheTargetKind};
 use crate::render_target::{RenderTargetContext, RenderTargetKind, RenderTarget};
 use crate::render_task_graph::{Pass, RenderTaskGraph, RenderTaskId, SubPassSurface};
@@ -73,9 +74,7 @@ pub struct FrameBuilderConfig {
     pub precise_conic_gradients: bool,
 }
 
-/// A set of common / global resources that are retained between
-/// new display lists, such that any GPU cache handles can be
-/// persisted even when a new display list arrives.
+/// A set of default / global resources that are re-built each frame.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameGlobalResources {
     /// The image shader block for the most common / default
@@ -89,31 +88,24 @@ pub struct FrameGlobalResources {
 }
 
 impl FrameGlobalResources {
-    pub fn empty() -> Self {
-        FrameGlobalResources {
-            default_image_data: GpuBufferAddress::INVALID,
-            default_black_rect_address: GpuBufferAddress::INVALID,
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        gpu_buffers: &mut GpuBufferBuilder,
-    ) {
-        let mut writer = gpu_buffers.f32.write_blocks(3);
-        writer.push_one(PremultipliedColorF::WHITE);
-        writer.push_one(PremultipliedColorF::WHITE);
-        writer.push_one([
-            -1.0,       // -ve means use prim rect for stretch size
-            0.0,
-            0.0,
-            0.0,
-        ]);
-        self.default_image_data = writer.finish();
+    pub fn new(gpu_buffers: &mut GpuBufferBuilder) -> Self {
+        let mut writer = gpu_buffers.f32.write_blocks(ImageBrushPrimitiveData::NUM_BLOCKS);
+        writer.push(&ImageBrushPrimitiveData {
+            color: PremultipliedColorF::WHITE,
+            background_color: PremultipliedColorF::WHITE,
+            // -ve means use prim rect for stretch size
+            stretch_size: LayoutSize::new(-1.0, 0.0),
+        });
+        let default_image_data = writer.finish();
 
         let mut writer = gpu_buffers.f32.write_blocks(1);
         writer.push_one(PremultipliedColorF::BLACK);
-        self.default_black_rect_address = writer.finish();
+        let default_black_rect_address = writer.finish();
+
+        FrameGlobalResources {
+            default_image_data,
+            default_black_rect_address,
+        }
     }
 }
 
@@ -141,7 +133,6 @@ impl FrameScratchBuffer {
 /// Produces the frames that are sent to the renderer.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameBuilder {
-    pub globals: FrameGlobalResources,
     #[cfg_attr(feature = "capture", serde(skip))]
     prim_headers_prealloc: Preallocator,
     #[cfg_attr(feature = "capture", serde(skip))]
@@ -266,7 +257,6 @@ pub struct PictureState {
 impl FrameBuilder {
     pub fn new() -> Self {
         FrameBuilder {
-            globals: FrameGlobalResources::empty(),
             prim_headers_prealloc: Preallocator::new(0),
             composite_state_prealloc: CompositeStatePreallocator::default(),
             plane_splitters: Vec::new(),
@@ -658,8 +648,8 @@ impl FrameBuilder {
         let mut frame_memory = FrameMemory::new(chunk_pool, stamp.frame_id());
         // TODO(gw): Recycle backing vec buffers for gpu buffer builder between frames
         let mut gpu_buffer_builder = GpuBufferBuilder {
-            f32: GpuBufferBuilderF::new(&frame_memory, 8 * 1024),
-            i32: GpuBufferBuilderI::new(&frame_memory, 2 * 1024),
+            f32: GpuBufferBuilderF::new(&frame_memory, 8 * 1024, stamp.frame_id()),
+            i32: GpuBufferBuilderI::new(&frame_memory, 2 * 1024, stamp.frame_id()),
         };
 
         profile.set(profiler::PRIMITIVES, scene.prim_instances.len());
@@ -671,7 +661,7 @@ impl FrameBuilder {
         //           statically during scene building.
         scene.surfaces.clear();
 
-        self.globals.update(&mut gpu_buffer_builder);
+        let globals = FrameGlobalResources::new(&mut gpu_buffer_builder);
 
         spatial_tree.update_tree(scene_properties);
         let mut transform_palette = spatial_tree.build_transform_palette(&frame_memory);
@@ -761,7 +751,7 @@ impl FrameBuilder {
                     surfaces: &scene.surfaces,
                     scratch: &mut scratch.primitive,
                     screen_world_rect,
-                    globals: &self.globals,
+                    globals: &globals,
                     tile_caches,
                     root_spatial_node_index: spatial_tree.root_reference_frame_index(),
                     frame_memory: &mut frame_memory,
@@ -803,7 +793,7 @@ impl FrameBuilder {
                     surfaces: &scene.surfaces,
                     scratch: &mut scratch.primitive,
                     screen_world_rect,
-                    globals: &self.globals,
+                    globals: &globals,
                     tile_caches,
                     root_spatial_node_index: spatial_tree.root_reference_frame_index(),
                     frame_memory: &mut frame_memory,

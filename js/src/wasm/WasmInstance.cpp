@@ -250,6 +250,11 @@ bool Instance::callImport(JSContext* cx, uint32_t funcImportIndex,
                           unsigned argc, uint64_t* argv) {
   AssertRealmUnchanged aru(cx);
 
+#ifdef ENABLE_WASM_JSPI
+  // We should not be on a suspendable stack.
+  MOZ_ASSERT(!cx->wasm().onSuspendableStack());
+#endif
+
   FuncImportInstanceData& instanceFuncImport =
       funcImportInstanceData(funcImportIndex);
   const FuncType& funcType = codeMeta().getFuncType(funcImportIndex);
@@ -408,24 +413,6 @@ bool Instance::callImport(JSContext* cx, uint32_t funcImportIndex,
 Instance::callImport_general(Instance* instance, int32_t funcImportIndex,
                              int32_t argc, uint64_t* argv) {
   JSContext* cx = instance->cx();
-#ifdef ENABLE_WASM_JSPI
-  if (IsSuspendableStackActive(cx)) {
-    struct ImportCallData {
-      Instance* instance;
-      int32_t funcImportIndex;
-      int32_t argc;
-      uint64_t* argv;
-      static bool Call(ImportCallData* data) {
-        Instance* instance = data->instance;
-        JSContext* cx = instance->cx();
-        return instance->callImport(cx, data->funcImportIndex, data->argc,
-                                    data->argv);
-      }
-    } data = {instance, funcImportIndex, argc, argv};
-    return CallOnMainStack(
-        cx, reinterpret_cast<CallOnMainStackFn>(ImportCallData::Call), &data);
-  }
-#endif
   return instance->callImport(cx, funcImportIndex, argc, argv);
 }
 
@@ -614,9 +601,12 @@ static int32_t PerformWake(Instance* instance, PtrT byteOffset, int32_t count,
   Pages pages = instance->memory(memoryIndex)->volatilePages();
 #ifdef JS_64BIT
   // Ensure that the memory size is no more than 4GiB.
-  MOZ_ASSERT(pages <= Pages(MaxMemory32PagesValidation));
+  MOZ_ASSERT(pages <=
+             Pages::fromPageCount(
+                 MaxMemoryPagesValidation(AddressType::I32, pages.pageSize()),
+                 pages.pageSize()));
 #endif
-  return uint32_t(pages.value());
+  return uint32_t(pages.pageCount());
 }
 
 /* static */ uint64_t Instance::memorySize_m64(Instance* instance,
@@ -630,9 +620,10 @@ static int32_t PerformWake(Instance* instance, PtrT byteOffset, int32_t count,
 
   Pages pages = instance->memory(memoryIndex)->volatilePages();
 #ifdef JS_64BIT
-  MOZ_ASSERT(pages <= Pages(MaxMemory64PagesValidation));
+  MOZ_ASSERT(pages <= Pages::fromPageCount(MaxMemory64StandardPagesValidation,
+                                           pages.pageSize()));
 #endif
-  return pages.value();
+  return pages.pageCount();
 }
 
 template <typename PointerT, typename CopyFuncT, typename IndexT>
@@ -1250,7 +1241,8 @@ static bool WasmDiscardCheck(Instance* instance, I byteOffset, I byteLen,
                              size_t memLen, bool shared) {
   JSContext* cx = instance->cx();
 
-  if (byteOffset % wasm::PageSize != 0 || byteLen % wasm::PageSize != 0) {
+  if (byteOffset % wasm::StandardPageSizeBytes != 0 ||
+      byteLen % wasm::StandardPageSizeBytes != 0) {
     ReportTrapError(cx, JSMSG_WASM_UNALIGNED_ACCESS);
     return false;
   }
@@ -2679,6 +2671,12 @@ bool Instance::init(JSContext* cx, const JSObjectVector& funcImports,
     MOZ_ASSERT(limit <= UINT32_MAX);
 #endif
     data.boundsCheckLimit = limit;
+#ifdef ENABLE_WASM_CUSTOM_PAGE_SIZES
+    data.boundsCheckLimit16 = limit > 1 ? limit - 1 : 0;
+    data.boundsCheckLimit32 = limit > 3 ? limit - 3 : 0;
+    data.boundsCheckLimit64 = limit > 7 ? limit - 7 : 0;
+    data.boundsCheckLimit128 = limit > 15 ? limit - 15 : 0;
+#endif
     data.isShared = md.isShared();
 
     // Add observer if our memory base may grow
@@ -3260,7 +3258,7 @@ uintptr_t Instance::traceFrame(JSTracer* trc, const wasm::WasmFrameIter& wfi,
 }
 
 void Instance::updateFrameForMovingGC(const wasm::WasmFrameIter& wfi,
-                                      uint8_t* nextPC) {
+                                      uint8_t* nextPC, Nursery& nursery) {
   const StackMap* map = code().lookupStackMap(nextPC);
   if (!map) {
     return;
@@ -3268,21 +3266,55 @@ void Instance::updateFrameForMovingGC(const wasm::WasmFrameIter& wfi,
   Frame* frame = wfi.frame();
   uintptr_t* stackWords = GetFrameScanStartForStackMap(frame, map, nullptr);
 
-  // Update interior array data pointers for any inline-storage arrays that
-  // moved.
-  for (uint32_t i = 0; i < map->header.numMappedWords; i++) {
-    if (map->get(i) != StackMap::Kind::ArrayDataPointer) {
-      continue;
-    }
+  // Update array data pointers, both IL and OOL, and struct data pointers,
+  // which are only OOL, for any such data areas that moved.  Note, the
+  // remapping info consulted by the calls to Nursery::forwardBufferPointer is
+  // what previous calls to Nursery::setForwardingPointerWhileTenuring in
+  // Wasm{Struct,Array}Object::obj_moved set up.
 
-    uint8_t** addressOfArrayDataPointer = (uint8_t**)&stackWords[i];
-    if (WasmArrayObject::isDataInline(*addressOfArrayDataPointer)) {
-      WasmArrayObject* oldArray =
-          WasmArrayObject::fromInlineDataPointer(*addressOfArrayDataPointer);
-      WasmArrayObject* newArray =
-          (WasmArrayObject*)gc::MaybeForwarded(oldArray);
-      *addressOfArrayDataPointer =
-          WasmArrayObject::addressOfInlineData(newArray);
+  for (uint32_t i = 0; i < map->header.numMappedWords; i++) {
+    StackMap::Kind kind = map->get(i);
+
+    switch (kind) {
+      case StackMap::Kind::ArrayDataPointer: {
+        // Make oldDataPointer point at the storage array in the old object.
+        uint8_t* oldDataPointer = (uint8_t*)stackWords[i];
+        if (WasmArrayObject::isDataInline(oldDataPointer)) {
+          // It's a pointer into the object itself.  Figure out where the old
+          // object is, ask where it got moved to, and fish out the updated
+          // value from the new object.
+          WasmArrayObject* oldArray =
+              WasmArrayObject::fromInlineDataPointer(oldDataPointer);
+          WasmArrayObject* newArray =
+              (WasmArrayObject*)gc::MaybeForwarded(oldArray);
+          if (newArray != oldArray) {
+            stackWords[i] =
+                uintptr_t(WasmArrayObject::addressOfInlineData(newArray));
+            MOZ_ASSERT(WasmArrayObject::isDataInline((uint8_t*)stackWords[i]));
+          }
+        } else {
+          WasmArrayObject::DataHeader* oldHeader =
+              WasmArrayObject::dataHeaderFromDataPointer(oldDataPointer);
+          WasmArrayObject::DataHeader* newHeader = oldHeader;
+          nursery.forwardBufferPointer((uintptr_t*)&newHeader);
+          if (newHeader != oldHeader) {
+            stackWords[i] =
+                uintptr_t(WasmArrayObject::dataHeaderToDataPointer(newHeader));
+            MOZ_ASSERT(!WasmArrayObject::isDataInline((uint8_t*)stackWords[i]));
+          }
+        }
+        break;
+      }
+
+      case StackMap::Kind::StructDataPointer: {
+        // It's an unmodified pointer from BufferAllocator, so this is simple.
+        nursery.forwardBufferPointer(&stackWords[i]);
+        break;
+      }
+
+      default: {
+        break;
+      }
     }
   }
 }
@@ -4044,6 +4076,12 @@ void Instance::onMovingGrowMemory(const WasmMemoryObject* memory) {
     MOZ_ASSERT(limit <= UINT32_MAX);
 #endif
     md.boundsCheckLimit = limit;
+#ifdef ENABLE_WASM_CUSTOM_PAGE_SIZES
+    md.boundsCheckLimit16 = limit > 1 ? limit - 1 : 0;
+    md.boundsCheckLimit32 = limit > 3 ? limit - 3 : 0;
+    md.boundsCheckLimit64 = limit > 7 ? limit - 7 : 0;
+    md.boundsCheckLimit128 = limit > 15 ? limit - 15 : 0;
+#endif
 
     if (i == 0) {
       memory0Base_ = md.base;

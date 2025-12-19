@@ -8,18 +8,18 @@
 const FEATURE_PREF = "browser.ipProtection.variant";
 const SITE_EXCEPTIONS_FEATURE_PREF =
   "browser.ipProtection.features.siteExceptions";
-const MODE_PREF = "browser.ipProtection.exceptionsMode";
 const AUTOSTART_FEATURE_ENABLED_PREF =
   "browser.ipProtection.features.autoStart";
 const AUTOSTART_PREF = "browser.ipProtection.autoStartEnabled";
 const AUTOSTART_PRIVATE_PREF = "browser.ipProtection.autoStartPrivateEnabled";
+const ONBOARDING_MESSAGE_MASK_PREF =
+  "browser.ipProtection.onboardingMessageMask";
 
 const SECTION_ID = "dataIPProtectionGroup";
 
 async function setupVpnPrefs({
   feature,
   siteExceptions = false,
-  mode = "all",
   autostartFeatureEnabled = false,
   autostart = false,
   autostartprivate = false,
@@ -28,12 +28,22 @@ async function setupVpnPrefs({
     set: [
       [FEATURE_PREF, feature],
       [SITE_EXCEPTIONS_FEATURE_PREF, siteExceptions],
-      [MODE_PREF, mode],
       [AUTOSTART_FEATURE_ENABLED_PREF, autostartFeatureEnabled],
       [AUTOSTART_PREF, autostart],
       [AUTOSTART_PRIVATE_PREF, autostartprivate],
     ],
   });
+}
+
+function testSettingsGroupVisible(browser, sectionId) {
+  let section = browser.contentDocument.getElementById(sectionId);
+  let settingGroup = section.querySelector(
+    `setting-group[groupid="ipprotection"]`
+  );
+  is_element_visible(section, "#dataIPProtectionGroup is shown");
+  is_element_visible(settingGroup, "ipprotection setting group is shown");
+
+  return settingGroup;
 }
 
 // Test the section is hidden on page load if the variant pref is set to an ineligible experiment.
@@ -61,176 +71,132 @@ add_task(
     await BrowserTestUtils.withNewTab(
       { gBrowser, url: "about:preferences#privacy" },
       async function (browser) {
-        let section = browser.contentDocument.getElementById(SECTION_ID);
-        is_element_visible(section, "#dataIPProtectionGroup is shown");
+        testSettingsGroupVisible(browser, SECTION_ID);
       }
     );
   }
 );
 
-// Test the site exceptions controls load correctly with mode set to "all"
-add_task(async function test_exceptions_load_with_all_mode() {
+// Test the site exceptions controls load correctly.
+add_task(async function test_exceptions_settings() {
   await setupVpnPrefs({ feature: "beta", siteExceptions: true });
 
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: "about:preferences#privacy" },
     async function (browser) {
-      let section = browser.contentDocument.getElementById(SECTION_ID);
-      let settingGroup = section.querySelector(
-        `setting-group[groupid="ipprotection"]`
+      let settingGroup = testSettingsGroupVisible(browser, SECTION_ID);
+      let siteExceptionsGroup = settingGroup?.querySelector(
+        "#ipProtectionExceptions"
       );
-      is_element_visible(section, "#dataIPProtectionGroup is shown");
-      is_element_visible(settingGroup, "ipprotection setting group is shown");
+      is_element_visible(siteExceptionsGroup, "Site exceptions group is shown");
 
-      let siteExceptionsRadioGroup = settingGroup?.querySelector(
-        "#ipProtectionExceptionsMode"
-      );
-      is_element_visible(
-        siteExceptionsRadioGroup,
-        "Site exceptions radio group is shown"
-      );
-
-      let exceptionAllRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioAll"
-      );
-      let exceptionSelectRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioSelect"
-      );
-      Assert.ok(
-        exceptionAllRadioButton?.checked,
-        "The 'all' radio button should be checked"
-      );
-      Assert.ok(
-        !exceptionSelectRadioButton?.checked,
-        "The 'select' radio button should not be checked"
-      );
-
-      let exceptionAllListButton = siteExceptionsRadioGroup?.querySelector(
+      let exceptionAllListButton = siteExceptionsGroup?.querySelector(
         "#ipProtectionExceptionAllListButton"
-      );
-      let exceptionSelectListButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionSelectListButton"
       );
       is_element_visible(
         exceptionAllListButton,
         "Button for list of exclusions is shown"
       );
-      is_element_hidden(
-        exceptionSelectListButton,
-        "Button for list of inclusions is hidden"
-      );
     }
   );
 });
 
-// Test the site exceptions controls load correctly with mode set to "select"
-add_task(async function test_exceptions_with_select_mode() {
-  await setupVpnPrefs({
-    feature: "beta",
-    siteExceptions: true,
-    mode: "select",
-  });
-
-  await BrowserTestUtils.withNewTab(
-    { gBrowser, url: "about:preferences#privacy" },
-    async function (browser) {
-      let section = browser.contentDocument.getElementById(SECTION_ID);
-      let settingGroup = section.querySelector(
-        `setting-group[groupid="ipprotection"]`
-      );
-      is_element_visible(section, "#dataIPProtectionGroup is shown");
-      is_element_visible(settingGroup, "ipprotection setting group is shown");
-
-      let siteExceptionsRadioGroup = settingGroup?.querySelector(
-        "#ipProtectionExceptionsMode"
-      );
-      is_element_visible(
-        siteExceptionsRadioGroup,
-        "Site exceptions radio group is shown"
-      );
-
-      let exceptionAllRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioAll"
-      );
-      let exceptionSelectRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioSelect"
-      );
-      Assert.ok(
-        !exceptionAllRadioButton?.checked,
-        "The 'all' radio button should not be checked"
-      );
-      Assert.ok(
-        exceptionSelectRadioButton?.checked,
-        "The 'select' radio button should be checked"
-      );
-
-      let exceptionAllListButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionAllListButton"
-      );
-      let exceptionSelectListButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionSelectListButton"
-      );
-      is_element_hidden(
-        exceptionAllListButton,
-        "Button for list of exclusions is hidden"
-      );
-      is_element_visible(
-        exceptionSelectListButton,
-        "Button for list of inclusions is shown"
-      );
-    }
-  );
-});
-
-// Test the site exceptions controls and pref update correctly after selecting another mode option.
-add_task(async function test_exceptions_change_mode_and_buttons() {
+// Test that we show the "Add" button in the site exceptions permission dialog
+// and correctly add site exclusions.
+add_task(async function test_exclusions_add_button() {
+  const PERM_NAME = "ipp-vpn";
   await setupVpnPrefs({ feature: "beta", siteExceptions: true });
 
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: "about:preferences#privacy" },
     async function (browser) {
-      let section = browser.contentDocument.getElementById(SECTION_ID);
-      let settingGroup = section.querySelector(
-        `setting-group[groupid="ipprotection"]`
+      let settingGroup = testSettingsGroupVisible(browser, SECTION_ID);
+      let siteExceptionsGroup = settingGroup?.querySelector(
+        "#ipProtectionExceptions"
       );
-      is_element_visible(section, "#dataIPProtectionGroup is shown");
-      is_element_visible(settingGroup, "ipprotection setting group is shown");
-
-      let siteExceptionsRadioGroup = settingGroup?.querySelector(
-        "#ipProtectionExceptionsMode"
+      let exceptionAllListButton = siteExceptionsGroup?.querySelector(
+        "#ipProtectionExceptionAllListButton"
       );
       is_element_visible(
-        siteExceptionsRadioGroup,
-        "Site exceptions radio group is shown"
+        exceptionAllListButton,
+        "Button for list of exclusions is shown"
       );
 
-      let exceptionAllRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioAll"
-      );
-      let exceptionSelectRadioButton = siteExceptionsRadioGroup?.querySelector(
-        "#ipProtectionExceptionRadioSelect"
+      // Clear ipp-vpn to start with 0 exclusions
+      Services.perms.removeByType(PERM_NAME);
+
+      // Let's load the dialog
+      let promiseSubDialogLoaded = promiseLoadSubDialog(
+        "chrome://browser/content/preferences/dialogs/permissions.xhtml"
       );
 
-      // Change mode by clicking "select" button
-      exceptionSelectRadioButton.click();
+      exceptionAllListButton.click();
 
-      Assert.ok(
-        !exceptionAllRadioButton?.checked,
-        "The 'all' radio button should not be checked"
-      );
-      Assert.ok(
-        exceptionSelectRadioButton?.checked,
-        "The 'select' radio button should be checked"
+      const win = await promiseSubDialogLoaded;
+
+      let addButton = win.document.getElementById("btnAdd");
+      Assert.ok(addButton, "Add button exists");
+      Assert.ok(BrowserTestUtils.isVisible(addButton), "Add button is visible");
+      Assert.ok(addButton.disabled, "Add button is disabled");
+
+      // Now let's click the Add button to add a new exclusion
+      let permissionsBox = win.document.getElementById("permissionsBox");
+      let siteListUpdatedPromise = BrowserTestUtils.waitForMutationCondition(
+        permissionsBox,
+        { subtree: true, childList: true },
+        () => {
+          return permissionsBox.children.length;
+        }
       );
 
-      let mode = Services.prefs.getStringPref(MODE_PREF);
+      // Set up a mock url input value
+      let urlField = win.document.getElementById("url");
+      Assert.ok(urlField, "Dialog url field exists");
+      const site1 = "https://example.com";
+      urlField.focus();
+
+      EventUtils.sendString(site1, win);
+      Assert.ok(!addButton.disabled, "Add button is enabled");
+
+      addButton.click();
+
+      await siteListUpdatedPromise;
+
+      permissionsBox = win.document.getElementById("permissionsBox");
       Assert.equal(
-        mode,
-        "select",
-        `Mode should now be "select" instead of "all"`
+        permissionsBox.children.length,
+        1,
+        "Should have 1 site listed as an exclusion"
       );
 
-      Services.prefs.clearUserPref(MODE_PREF);
+      let shownSite1 = permissionsBox.children[0];
+      Assert.equal(
+        shownSite1.getAttribute("origin"),
+        site1,
+        "Should match inputted site in the list of sites"
+      );
+
+      // Apply the changes
+      let saveButton = win.document.querySelector("dialog").getButton("accept");
+      Assert.ok(saveButton, "Save button is shown");
+
+      saveButton.click();
+
+      let exclusions = Services.perms.getAllByTypes([PERM_NAME]);
+      Assert.equal(
+        exclusions.length,
+        1,
+        "Should have 1 exclusion after pressing the Add button"
+      );
+      Assert.equal(
+        exclusions[0]?.principal.siteOrigin,
+        site1,
+        "Should match the inputted site"
+      );
+
+      // Clean up
+      Services.perms.removeByType(PERM_NAME);
+      Services.prefs.clearUserPref(ONBOARDING_MESSAGE_MASK_PREF);
     }
   );
 });
@@ -247,13 +213,7 @@ add_task(async function test_autostart_checkboxes() {
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: "about:preferences#privacy" },
     async function (browser) {
-      let section = browser.contentDocument.getElementById(SECTION_ID);
-      let settingGroup = section.querySelector(
-        `setting-group[groupid="ipprotection"]`
-      );
-      is_element_visible(section, "#dataIPProtectionGroup is shown");
-      is_element_visible(settingGroup, "ipprotection setting group is shown");
-
+      let settingGroup = testSettingsGroupVisible(browser, SECTION_ID);
       let autoStartSettings = settingGroup?.querySelector(
         "#ipProtectionAutoStart"
       );
@@ -290,13 +250,7 @@ add_task(async function test_additional_links() {
   await BrowserTestUtils.withNewTab(
     { gBrowser, url: "about:preferences#privacy" },
     async function (browser) {
-      let section = browser.contentDocument.getElementById(SECTION_ID);
-      let settingGroup = section.querySelector(
-        `setting-group[groupid="ipprotection"]`
-      );
-      is_element_visible(section, "#dataIPProtectionGroup is shown");
-      is_element_visible(settingGroup, "ipprotection setting group is shown");
-
+      let settingGroup = testSettingsGroupVisible(browser, SECTION_ID);
       let additionalLinks = settingGroup?.querySelector(
         "#ipProtectionAdditionalLinks"
       );
